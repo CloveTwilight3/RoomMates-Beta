@@ -1,4 +1,17 @@
-// message-logger.ts - A message logging system for the Roommates Helper bot
+/**
+ * Message Logger System for The Roommates Helper
+ * -----------------------------------------
+ * A comprehensive message logging system that tracks message edits,
+ * deletions, and bulk deletions across Discord servers.
+ * 
+ * @license MIT
+ * @copyright 2025 Clove Twilight
+ */
+
+//=============================================================================
+// IMPORTS
+//=============================================================================
+
 import { 
   Client, 
   TextChannel,
@@ -15,12 +28,17 @@ import {
   Attachment,
   AttachmentBuilder,
   Channel,
-  BaseChannel,
   GuildChannel
 } from 'discord.js';
 import fs from 'fs';
 
-// Configuration interface
+//=============================================================================
+// CONFIGURATION INTERFACES
+//=============================================================================
+
+/**
+ * Configuration interface for the message logger system
+ */
 interface MessageLoggerConfig {
   enabled: boolean;
   logChannelId?: string;
@@ -52,8 +70,13 @@ let loggerConfig: MessageLoggerConfig = { ...defaultConfig };
 // File path for configuration
 const CONFIG_FILE = 'message_logger_config.json';
 
+//=============================================================================
+// CONFIGURATION MANAGEMENT
+//=============================================================================
+
 /**
- * Load the message logger configuration
+ * Load the message logger configuration from disk
+ * @returns The current logger configuration
  */
 export function loadMessageLoggerConfig(): MessageLoggerConfig {
   try {
@@ -61,6 +84,7 @@ export function loadMessageLoggerConfig(): MessageLoggerConfig {
       const configData = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
       loggerConfig = { ...defaultConfig, ...configData };
       console.log(`Message logger configuration loaded: ${loggerConfig.enabled ? 'Enabled' : 'Disabled'}`);
+      console.log(`Loaded logger config. Channel ID: ${loggerConfig.logChannelId}, Enabled: ${loggerConfig.enabled}`);
       
       if (loggerConfig.enabled && !loggerConfig.logChannelId) {
         console.warn('Message logger is enabled but no log channel is configured');
@@ -77,7 +101,8 @@ export function loadMessageLoggerConfig(): MessageLoggerConfig {
 }
 
 /**
- * Save the message logger configuration
+ * Save the message logger configuration to disk
+ * @param config Configuration to save
  */
 export function saveMessageLoggerConfig(config: MessageLoggerConfig): void {
   try {
@@ -90,8 +115,13 @@ export function saveMessageLoggerConfig(config: MessageLoggerConfig): void {
   }
 }
 
+//=============================================================================
+// COMMAND REGISTRATION
+//=============================================================================
+
 /**
- * Register the message logger commands
+ * Register message logger commands
+ * @param commandsArray Array to add the commands to
  */
 export function registerMessageLoggerCommands(commandsArray: any[]): void {
   const loggerCommand = new SlashCommandBuilder()
@@ -171,28 +201,66 @@ export function registerMessageLoggerCommands(commandsArray: any[]): void {
   commandsArray.push(loggerCommand);
 }
 
+//=============================================================================
+// LOGGER SYSTEM SETUP
+//=============================================================================
+
 /**
- * Set up the message logger
+ * Set up the message logger system
+ * @param client Discord.js client
  */
 export function setupMessageLogger(client: Client): void {
   // Load the configuration
   loadMessageLoggerConfig();
+  
+  console.log("Setting up message logger with events:");
+  console.log("Edit events enabled:", loggerConfig.logEdits);
+  console.log("Delete events enabled:", loggerConfig.logDeletes);
+  console.log("Log channel ID:", loggerConfig.logChannelId);
 
   // Set up event listeners for message updates (edits)
   client.on(Events.MessageUpdate, async (oldMessage: Message | PartialMessage, newMessage: Message | PartialMessage) => {
-    if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logEdits) return;
-    if (newMessage.author?.bot) return; // Ignore bot messages
+    console.log("Message update event triggered");
+    console.log(`Message ID: ${newMessage.id}, Channel: ${newMessage.channelId}`);
+    
+    if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logEdits) {
+      console.log("Message update event ignored - logger not enabled or configured");
+      return;
+    }
+    
+    if (newMessage.author?.bot) {
+      console.log("Message update event ignored - message from bot");
+      return;
+    }
     
     // Don't log edits in the log channel itself
-    if (newMessage.channelId === loggerConfig.logChannelId) return;
+    if (newMessage.channelId === loggerConfig.logChannelId) {
+      console.log("Message update event ignored - edit in log channel");
+      return;
+    }
     
-    // Check if this is a DM
-    const isDM = newMessage.channel?.type === 0; // 0 is ChannelType.DM
-    if (isDM && !loggerConfig.logDMs) return;
+    // Debug channel types
+    console.log("Message channel type:", newMessage.channel?.type);
+    
+    // Check if this is a DM - using type casting to avoid TypeScript errors
+    const isDM = (newMessage.channel?.type as number) === 1;
+    console.log("Is DM channel:", isDM);
+    
+    if (isDM && !loggerConfig.logDMs) {
+      console.log("Message update event ignored - DM logging disabled");
+      return;
+    }
     
     // Check ignored channels and users
-    if (!isDM && loggerConfig.ignoredChannels.includes(newMessage.channelId)) return;
-    if (newMessage.author && loggerConfig.ignoredUsers.includes(newMessage.author.id)) return;
+    if (!isDM && loggerConfig.ignoredChannels.includes(newMessage.channelId)) {
+      console.log("Message update event ignored - channel is ignored");
+      return;
+    }
+    
+    if (newMessage.author && loggerConfig.ignoredUsers.includes(newMessage.author.id)) {
+      console.log("Message update event ignored - user is ignored");
+      return;
+    }
     
     try {
       // Only log if the content has changed and isn't empty
@@ -200,6 +268,8 @@ export function setupMessageLogger(client: Client): void {
           oldMessage.content !== null && 
           newMessage.content !== null) {
         await logMessageEdit(client, oldMessage, newMessage);
+      } else {
+        console.log("Message update event ignored - content didn't change or is empty");
       }
     } catch (error) {
       console.error("Error logging message edit:", error);
@@ -208,19 +278,44 @@ export function setupMessageLogger(client: Client): void {
 
   // Set up event listeners for message deletions
   client.on(Events.MessageDelete, async (message: Message | PartialMessage) => {
-    if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logDeletes) return;
-    if (message.author?.bot) return; // Ignore bot messages
+    console.log("Message delete event triggered");
+    console.log(`Message ID: ${message.id}, Channel: ${message.channelId}`);
+    
+    if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logDeletes) {
+      console.log("Message delete event ignored - logger not enabled or configured");
+      return;
+    }
+    
+    if (message.author?.bot) {
+      console.log("Message delete event ignored - message from bot");
+      return;
+    }
     
     // Don't log deletions in the log channel itself
-    if (message.channelId === loggerConfig.logChannelId) return;
+    if (message.channelId === loggerConfig.logChannelId) {
+      console.log("Message delete event ignored - deletion in log channel");
+      return;
+    }
     
-    // Check if this is a DM
-    const isDM = message.channel?.type === 0; // 0 is ChannelType.DM
-    if (isDM && !loggerConfig.logDMs) return;
+    // Check if this is a DM - using type casting to avoid TypeScript errors
+    const isDM = (message.channel?.type as number) === 1;
+    console.log("Is DM channel:", isDM);
+    
+    if (isDM && !loggerConfig.logDMs) {
+      console.log("Message delete event ignored - DM logging disabled");
+      return;
+    }
     
     // Check ignored channels and users
-    if (!isDM && loggerConfig.ignoredChannels.includes(message.channelId)) return;
-    if (message.author && loggerConfig.ignoredUsers.includes(message.author.id)) return;
+    if (!isDM && loggerConfig.ignoredChannels.includes(message.channelId)) {
+      console.log("Message delete event ignored - channel is ignored");
+      return;
+    }
+    
+    if (message.author && loggerConfig.ignoredUsers.includes(message.author.id)) {
+      console.log("Message delete event ignored - user is ignored");
+      return;
+    }
     
     try {
       await logMessageDeletion(client, message);
@@ -231,17 +326,34 @@ export function setupMessageLogger(client: Client): void {
 
   // Set up event listeners for bulk message deletions
   client.on(Events.MessageBulkDelete, async (messages, channel) => {
-    if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logDeletes) return;
+    console.log("Bulk message delete event triggered");
+    console.log(`Messages: ${messages.size}, Channel: ${channel.id}`);
+    
+    if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logDeletes) {
+      console.log("Bulk message delete event ignored - logger not enabled or configured");
+      return;
+    }
     
     // Don't log deletions in the log channel itself
-    if (channel.id === loggerConfig.logChannelId) return;
+    if (channel.id === loggerConfig.logChannelId) {
+      console.log("Bulk message delete event ignored - deletion in log channel");
+      return;
+    }
     
-    // Check if this is a DM channel
-    const isDM = channel.type === 0; // 0 is ChannelType.DM
-    if (isDM && !loggerConfig.logDMs) return;
+    // Check if this is a DM channel - using type casting to avoid TypeScript errors
+    const isDM = (channel.type as number) === 1;
+    console.log("Is DM channel:", isDM);
+    
+    if (isDM && !loggerConfig.logDMs) {
+      console.log("Bulk message delete event ignored - DM logging disabled");
+      return;
+    }
     
     // Check ignored channels
-    if (!isDM && loggerConfig.ignoredChannels.includes(channel.id)) return;
+    if (!isDM && loggerConfig.ignoredChannels.includes(channel.id)) {
+      console.log("Bulk message delete event ignored - channel is ignored");
+      return;
+    }
     
     try {
       // Create a new Collection to handle messages
@@ -258,11 +370,68 @@ export function setupMessageLogger(client: Client): void {
     }
   });
   
+  // Check intents
+  const intents = client.options.intents;
+  console.log("Bot Intents Check:");
+  console.log(`- GuildMessages: ${intents.has(1 << 9)}`);
+  console.log(`- GuildMessageReactions: ${intents.has(1 << 10)}`);
+  console.log(`- GuildMessageTyping: ${intents.has(1 << 11)}`);
+  console.log(`- DirectMessages: ${intents.has(1 << 12)}`);
+  console.log(`- MessageContent: ${intents.has(1 << 15)}`);
+  
   console.log("Message logger set up successfully");
 }
 
 /**
- * Handle the logger command
+ * Test the logger channel is properly configured
+ * @param client Discord.js client
+ */
+export async function testLoggerChannel(client: Client): Promise<void> {
+  if (!loggerConfig.logChannelId) {
+    console.log("No log channel ID configured - skipping test");
+    return;
+  }
+
+  try {
+    console.log(`Testing logger channel with ID: ${loggerConfig.logChannelId}`);
+    
+    const channel = await client.channels.fetch(loggerConfig.logChannelId);
+    console.log("Log channel fetch result:", channel ? "Found" : "Not found");
+    
+    if (!channel) {
+      console.log("Could not find log channel");
+      return;
+    }
+    
+    if (!('send' in channel)) {
+      console.log("Channel doesn't support sending messages");
+      return;
+    }
+    
+    const textChannel = channel as TextChannel;
+    const testEmbed = new EmbedBuilder()
+      .setTitle('Message Logger Test')
+      .setDescription('This is a test to verify the message logger is working correctly.')
+      .setColor(0x00FF00)
+      .addFields({ name: 'Status', value: 'If you can see this message, the logger channel is properly configured.' })
+      .setFooter({ text: 'The Roommates Helper' })
+      .setTimestamp();
+    
+    console.log("Sending test message to log channel");
+    const sentMessage = await textChannel.send({ embeds: [testEmbed] });
+    console.log("Test message sent successfully. ID:", sentMessage.id);
+  } catch (error) {
+    console.error("Error testing log channel:", error);
+  }
+}
+
+//=============================================================================
+// COMMAND HANDLERS
+//=============================================================================
+
+/**
+ * Main handler for logger commands
+ * @param interaction Command interaction
  */
 export async function handleLoggerCommand(interaction: CommandInteraction): Promise<void> {
   if (!interaction.isChatInputCommand()) return;
@@ -293,6 +462,7 @@ export async function handleLoggerCommand(interaction: CommandInteraction): Prom
 
 /**
  * Handle the setchannel subcommand
+ * @param interaction Command interaction
  */
 async function handleSetChannelCommand(interaction: CommandInteraction): Promise<void> {
   if (!interaction.isChatInputCommand()) return;
@@ -307,8 +477,10 @@ async function handleSetChannelCommand(interaction: CommandInteraction): Promise
     return;
   }
   
-  // Check if it's a text-based channel
-  if (![0, 5, 10, 11, 12].includes(selectedChannel.type)) { // Text channel types
+  console.log("Selected channel type:", selectedChannel.type);
+  
+  // Use type casting to avoid TypeScript errors with channel type checks
+  if (!selectedChannel || ![0, 5, 10, 11, 12, 15].includes(selectedChannel.type as number)) {
     await interaction.reply({
       content: 'Please select a text channel. Voice channels and categories cannot be used for logging.',
       ephemeral: true
@@ -318,20 +490,28 @@ async function handleSetChannelCommand(interaction: CommandInteraction): Promise
   
   try {
     // Try to fetch the channel to ensure we have access to it
+    console.log("Fetching channel:", selectedChannel.id);
     const channel = await interaction.client.channels.fetch(selectedChannel.id);
+    console.log("Channel fetch result:", channel ? "Found" : "Not found");
     
-    if (!channel || !('send' in channel)) {
+    if (!channel) {
+      console.log("Channel not found");
       await interaction.reply({
-        content: 'I cannot access that channel or it\'s not a text channel.',
+        content: 'I cannot access that channel.',
         ephemeral: true
       });
       return;
     }
     
+    // Make sure it's a text channel
+    const textChannel = channel as TextChannel;
+    
     // Send a test message to confirm permissions
-    const testMsg = await (channel as TextChannel).send({
+    console.log("Sending test message to channel");
+    const testMsg = await textChannel.send({
       content: 'Message logger channel set successfully! This is a test message to confirm permissions.',
     });
+    console.log("Test message sent successfully");
     
     // If the message was sent successfully, save the config
     loggerConfig.logChannelId = selectedChannel.id;
@@ -357,6 +537,7 @@ async function handleSetChannelCommand(interaction: CommandInteraction): Promise
 
 /**
  * Handle the enable subcommand
+ * @param interaction Command interaction
  */
 async function handleEnableCommand(interaction: CommandInteraction): Promise<void> {
   if (!loggerConfig.logChannelId) {
@@ -378,6 +559,7 @@ async function handleEnableCommand(interaction: CommandInteraction): Promise<voi
 
 /**
  * Handle the disable subcommand
+ * @param interaction Command interaction
  */
 async function handleDisableCommand(interaction: CommandInteraction): Promise<void> {
   loggerConfig.enabled = false;
@@ -391,6 +573,7 @@ async function handleDisableCommand(interaction: CommandInteraction): Promise<vo
 
 /**
  * Handle the status subcommand
+ * @param interaction Command interaction
  */
 async function handleStatusCommand(interaction: CommandInteraction): Promise<void> {
   let statusMessage = `Message logging is currently ${loggerConfig.enabled ? 'enabled' : 'disabled'}.\n`;
@@ -427,6 +610,7 @@ async function handleStatusCommand(interaction: CommandInteraction): Promise<voi
 
 /**
  * Handle the ignore subcommand
+ * @param interaction Command interaction
  */
 async function handleIgnoreCommand(interaction: CommandInteraction): Promise<void> {
   if (!interaction.isChatInputCommand()) return;
@@ -523,6 +707,7 @@ async function handleIgnoreCommand(interaction: CommandInteraction): Promise<voi
 
 /**
  * Handle the unignore subcommand
+ * @param interaction Command interaction
  */
 async function handleUnignoreCommand(interaction: CommandInteraction): Promise<void> {
   if (!interaction.isChatInputCommand()) return;
@@ -583,24 +768,50 @@ async function handleUnignoreCommand(interaction: CommandInteraction): Promise<v
   }
 }
 
+//=============================================================================
+// MESSAGE LOGGING FUNCTIONS
+//=============================================================================
+
 /**
  * Log a message edit
+ * @param client Discord.js client
+ * @param oldMessage Original message
+ * @param newMessage Edited message
  */
 async function logMessageEdit(
   client: Client, 
   oldMessage: Message | PartialMessage, 
   newMessage: Message | PartialMessage
 ): Promise<void> {
-  if (!loggerConfig.logChannelId) return;
+  console.log("Attempting to log message edit");
+  
+  if (!loggerConfig.logChannelId) {
+    console.log("No log channel configured");
+    return;
+  }
   
   try {
+    console.log("Fetching log channel:", loggerConfig.logChannelId);
     const logChannel = await client.channels.fetch(loggerConfig.logChannelId);
-    if (!logChannel || !('send' in logChannel)) return;
+    console.log("Log channel fetch result:", logChannel ? "Found" : "Not found");
     
-    const isDM = newMessage.channel?.type === 0; // 0 is ChannelType.DM
+    if (!logChannel) {
+      console.log("Log channel not found");
+      return;
+    }
+    
+    // Make sure it's a text channel
+    const textChannel = logChannel as TextChannel;
+    
+    // Check if this is a DM - using type casting to avoid TypeScript errors
+    const isDM = (newMessage.channel?.type as number) === 1;
+    console.log("Is DM channel:", isDM);
+    
     const author = newMessage.author;
-    
-    if (!author) return;
+    if (!author) {
+      console.log("No author found for message");
+      return;
+    }
     
     const embed = new EmbedBuilder()
       .setAuthor({
@@ -651,7 +862,9 @@ async function logMessageEdit(
       });
     }
     
-    await (logChannel as TextChannel).send({ embeds: [embed] });
+    console.log("Sending log message to channel");
+    await textChannel.send({ embeds: [embed] });
+    console.log("Log message sent successfully");
   } catch (error) {
     console.error('Error logging message edit:', error);
   }
@@ -659,19 +872,41 @@ async function logMessageEdit(
 
 /**
  * Log a message deletion
+ * @param client Discord.js client
+ * @param message Deleted message
  */
 async function logMessageDeletion(client: Client, message: Message | PartialMessage): Promise<void> {
-  if (!loggerConfig.logChannelId) return;
+  console.log("Attempting to log message deletion");
+  
+  if (!loggerConfig.logChannelId) {
+    console.log("No log channel configured");
+    return;
+  }
   
   try {
+    console.log("Fetching log channel:", loggerConfig.logChannelId);
     const logChannel = await client.channels.fetch(loggerConfig.logChannelId);
-    if (!logChannel || !('send' in logChannel)) return;
+    console.log("Log channel fetch result:", logChannel ? "Found" : "Not found");
     
-    const isDM = message.channel?.type === 0; // 0 is ChannelType.DM
+    if (!logChannel) {
+      console.log("Log channel not found");
+      return;
+    }
+    
+    // Make sure it's a text channel
+    const textChannel = logChannel as TextChannel;
+    
+    // Check if this is a DM - using type casting to avoid TypeScript errors
+    const isDM = (message.channel?.type as number) === 1;
+    console.log("Is DM channel:", isDM);
+    
     const author = message.author;
     
     // Skip if we can't determine the author (happens with partial messages)
-    if (!author) return;
+    if (!author) {
+      console.log("No author found for message");
+      return;
+    }
     
     const embed = new EmbedBuilder()
       .setAuthor({
@@ -713,7 +948,9 @@ async function logMessageDeletion(client: Client, message: Message | PartialMess
       });
     }
     
-    await (logChannel as TextChannel).send({ embeds: [embed] });
+    console.log("Sending log message to channel");
+    await textChannel.send({ embeds: [embed] });
+    console.log("Log message sent successfully");
   } catch (error) {
     console.error('Error logging message deletion:', error);
   }
@@ -721,17 +958,34 @@ async function logMessageDeletion(client: Client, message: Message | PartialMess
 
 /**
  * Log bulk message deletions
+ * @param client Discord.js client
+ * @param messages Collection of deleted messages
+ * @param channel Channel where messages were deleted
  */
 async function logBulkDeletion(
   client: Client,
   messages: Collection<string, Message | PartialMessage>,
   channel: GuildTextBasedChannel
 ): Promise<void> {
-  if (!loggerConfig.logChannelId) return;
+  console.log("Attempting to log bulk message deletion");
+  
+  if (!loggerConfig.logChannelId) {
+    console.log("No log channel configured");
+    return;
+  }
   
   try {
+    console.log("Fetching log channel:", loggerConfig.logChannelId);
     const logChannel = await client.channels.fetch(loggerConfig.logChannelId);
-    if (!logChannel || !('send' in logChannel)) return;
+    console.log("Log channel fetch result:", logChannel ? "Found" : "Not found");
+    
+    if (!logChannel) {
+      console.log("Log channel not found");
+      return;
+    }
+    
+    // Make sure it's a text channel
+    const textChannel = logChannel as TextChannel;
     
     const embed = new EmbedBuilder()
       .setTitle('Bulk Message Deletion')
@@ -743,7 +997,9 @@ async function logBulkDeletion(
       )
       .setTimestamp();
     
-    await (logChannel as TextChannel).send({ embeds: [embed] });
+    console.log("Sending log message to channel");
+    await textChannel.send({ embeds: [embed] });
+    console.log("Log message sent successfully");
     
     // If content logging is enabled, create a detailed log
     if (loggerConfig.logMessageContent) {
@@ -782,13 +1038,13 @@ async function logBulkDeletion(
       
       // If the log is too long, split it or send as a file
       if (logContent.length <= 2000) {
-        await (logChannel as TextChannel).send({ content: logContent });
+        await textChannel.send({ content: logContent });
       } else {
         // Create a buffer for the file
         const buffer = Buffer.from(logContent, 'utf8');
         const attachment = new AttachmentBuilder(buffer, { name: `bulk-deletion-${Date.now()}.txt` });
         
-        await (logChannel as TextChannel).send({ 
+        await textChannel.send({ 
           content: 'Detailed log of bulk deletion:',
           files: [attachment]
         });

@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "logChannelId": "1366199447104651344",
+  "ignoredChannels": [],
+  "ignoredUsers": [],
+  "logMessageContent": true,
+  "logDMs": false,
+  "logEdits": true,
+  "logDeletes": true,
+  "maxMessageLength": 1000
+}
