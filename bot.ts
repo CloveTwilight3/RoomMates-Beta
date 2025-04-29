@@ -6,6 +6,7 @@
  * - Age verification system
  * - Message logging system
  * - Welcome DM system
+ * - Warning system with escalating punishments
  * 
  * @license MIT
  * @copyright 2025 Clove Twilight
@@ -81,6 +82,18 @@ import {
   setupWelcomeDM,
   sendWelcomeDM
 } from './welcome-dm';
+
+//=============================================================================
+// IMPORT WARNING SYSTEM
+//=============================================================================
+
+import {
+  registerModCommands,
+  setupWarningSystem,
+  handleModCommand,
+  handleModButtonInteraction,
+  handleModModalSubmit
+} from './warning-system';
 
 //=============================================================================
 // IMPORT HEALTH CHECK SYSTEM
@@ -284,6 +297,9 @@ async function registerCommands() {
   
   // Add message logger commands to the array
   registerMessageLoggerCommands(commands);
+  
+  // Add moderation commands to the array
+  registerModCommands(commands);
 
   try {
     console.log('Started refreshing application (/) commands.');
@@ -650,6 +666,9 @@ client.once(Events.ClientReady, async () => {
   // Set up the welcome DM system
   setupWelcomeDM(client);
   
+  // Set up the warning system
+  setupWarningSystem(client);
+  
   // Test the message logger channel
   await testLoggerChannel(client);
   
@@ -763,6 +782,14 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
 
   const { commandName } = interaction;
 
+  // Handle warning system commands
+  if (['warn', 'warnings', 'clearwarnings', 'mute', 'unmute',
+       'ban', 'unban', 'kick', 'note', 'modconfig', 'appeal',
+       'check'].includes(commandName)) {
+    await handleModCommand(interaction);
+    return;
+  }
+
   // Get the member from the interaction
   const member = interaction.guild.members.cache.get(interaction.user.id);
   if (!member) {
@@ -823,6 +850,14 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
   const customId = interaction.customId;
   
   try {
+    // Handle warning system buttons
+    if (customId.startsWith('open_appeal_modal_') ||
+        customId.startsWith('approve_appeal_') ||
+        customId.startsWith('deny_appeal_')) {
+      await handleModButtonInteraction(interaction);
+      return;
+    }
+    
     // Handle color selection
     if (customId === 'color_category_select' || customId === 'color_select') {
       // These are handled by the collectors in handleColorSelectCommand
@@ -876,6 +911,13 @@ async function handleModalInteraction(interaction: ModalSubmitInteraction) {
   const customId = interaction.customId;
   
   try {
+    // Handle warning system modals
+    if (customId.startsWith('appeal_modal_') ||
+        customId.startsWith('appeal_decision_')) {
+      await handleModModalSubmit(interaction);
+      return;
+    }
+    
     // Handle verification modals
     if (customId.startsWith('verification_modal_')) {
       await handleVerificationModal(interaction);

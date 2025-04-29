@@ -2,7 +2,7 @@
  * Message Logger System for The Roommates Helper
  * -----------------------------------------
  * A comprehensive message logging system that tracks message edits,
- * deletions, and bulk deletions across Discord servers.
+ * deletions, bulk deletions, and member join/leave events across Discord servers.
  * 
  * @license MIT
  * @copyright 2025 Clove Twilight
@@ -28,7 +28,10 @@ import {
   Attachment,
   AttachmentBuilder,
   Channel,
-  GuildChannel
+  GuildChannel,
+  GuildMember,
+  User,
+  PartialGuildMember
 } from 'discord.js';
 import fs from 'fs';
 
@@ -48,6 +51,8 @@ interface MessageLoggerConfig {
   logDMs: boolean;
   logEdits: boolean;
   logDeletes: boolean;
+  logJoins: boolean;
+  logLeaves: boolean;
   maxMessageLength: number;
 }
 
@@ -61,6 +66,8 @@ const defaultConfig: MessageLoggerConfig = {
   logDMs: false,
   logEdits: true,
   logDeletes: true,
+  logJoins: true,
+  logLeaves: true,
   maxMessageLength: 1000 // Maximum message length to log
 };
 
@@ -156,6 +163,24 @@ export function registerMessageLoggerCommands(commandsArray: any[]): void {
     )
     .addSubcommand(subcommand =>
       subcommand
+        .setName('toggle')
+        .setDescription('Toggle specific logging features')
+        .addStringOption(option =>
+          option
+            .setName('feature')
+            .setDescription('The logging feature to toggle')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Message Edits', value: 'edits' },
+              { name: 'Message Deletions', value: 'deletes' },
+              { name: 'Member Joins', value: 'joins' },
+              { name: 'Member Leaves', value: 'leaves' },
+              { name: 'Direct Messages', value: 'dms' }
+            )
+        )
+    )
+    .addSubcommand(subcommand =>
+      subcommand
         .setName('ignore')
         .setDescription('Add a channel or user to the ignore list')
         .addStringOption(option =>
@@ -216,6 +241,8 @@ export function setupMessageLogger(client: Client): void {
   console.log("Setting up message logger with events:");
   console.log("Edit events enabled:", loggerConfig.logEdits);
   console.log("Delete events enabled:", loggerConfig.logDeletes);
+  console.log("Join events enabled:", loggerConfig.logJoins);
+  console.log("Leave events enabled:", loggerConfig.logLeaves);
   console.log("Log channel ID:", loggerConfig.logChannelId);
 
   // Set up event listeners for message updates (edits)
@@ -369,10 +396,69 @@ export function setupMessageLogger(client: Client): void {
       console.error("Error logging bulk deletion:", error);
     }
   });
+
+  // Set up event listeners for member joins
+  client.on(Events.GuildMemberAdd, async (member: GuildMember) => {
+    console.log("Member join event triggered");
+    console.log(`Member: ${member.user.tag}, Guild: ${member.guild.name}`);
+    
+    if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logJoins) {
+      console.log("Member join event ignored - logger not enabled or configured");
+      return;
+    }
+    
+    // Check if the member is a bot
+    if (member.user.bot) {
+      console.log("Member join event ignored - member is a bot");
+      return;
+    }
+    
+    // Check ignored users
+    if (loggerConfig.ignoredUsers.includes(member.id)) {
+      console.log("Member join event ignored - user is ignored");
+      return;
+    }
+    
+    try {
+      await logMemberJoin(client, member);
+    } catch (error) {
+      console.error("Error logging member join:", error);
+    }
+  });
+
+  // Set up event listeners for member leaves
+  client.on(Events.GuildMemberRemove, async (member: GuildMember | PartialGuildMember) => {
+    console.log("Member leave event triggered");
+    console.log(`Member: ${member.user.tag}, Guild: ${member.guild.name}`);
+    
+    if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logLeaves) {
+      console.log("Member leave event ignored - logger not enabled or configured");
+      return;
+    }
+    
+    // Check if the member is a bot
+    if (member.user.bot) {
+      console.log("Member leave event ignored - member is a bot");
+      return;
+    }
+    
+    // Check ignored users
+    if (loggerConfig.ignoredUsers.includes(member.id)) {
+      console.log("Member leave event ignored - user is ignored");
+      return;
+    }
+    
+    try {
+      await logMemberLeave(client, member);
+    } catch (error) {
+      console.error("Error logging member leave:", error);
+    }
+  });
   
   // Check intents
   const intents = client.options.intents;
   console.log("Bot Intents Check:");
+  console.log(`- GuildMembers: ${intents.has(1 << 1)}`);
   console.log(`- GuildMessages: ${intents.has(1 << 9)}`);
   console.log(`- GuildMessageReactions: ${intents.has(1 << 10)}`);
   console.log(`- GuildMessageTyping: ${intents.has(1 << 11)}`);
@@ -450,6 +536,9 @@ export async function handleLoggerCommand(interaction: CommandInteraction): Prom
       break;
     case 'status':
       await handleStatusCommand(interaction);
+      break;
+    case 'toggle':
+      await handleToggleCommand(interaction);
       break;
     case 'ignore':
       await handleIgnoreCommand(interaction);
@@ -572,6 +661,54 @@ async function handleDisableCommand(interaction: CommandInteraction): Promise<vo
 }
 
 /**
+ * Handle the toggle subcommand
+ * @param interaction Command interaction
+ */
+async function handleToggleCommand(interaction: CommandInteraction): Promise<void> {
+  if (!interaction.isChatInputCommand()) return;
+  
+  const feature = interaction.options.getString('feature', true);
+  
+  let toggledValue = false;
+  let featureName = "";
+  
+  switch (feature) {
+    case 'edits':
+      loggerConfig.logEdits = !loggerConfig.logEdits;
+      toggledValue = loggerConfig.logEdits;
+      featureName = "Message edits logging";
+      break;
+    case 'deletes':
+      loggerConfig.logDeletes = !loggerConfig.logDeletes;
+      toggledValue = loggerConfig.logDeletes;
+      featureName = "Message deletions logging";
+      break;
+    case 'joins':
+      loggerConfig.logJoins = !loggerConfig.logJoins;
+      toggledValue = loggerConfig.logJoins;
+      featureName = "Member joins logging";
+      break;
+    case 'leaves':
+      loggerConfig.logLeaves = !loggerConfig.logLeaves;
+      toggledValue = loggerConfig.logLeaves;
+      featureName = "Member leaves logging";
+      break;
+    case 'dms':
+      loggerConfig.logDMs = !loggerConfig.logDMs;
+      toggledValue = loggerConfig.logDMs;
+      featureName = "DM logging";
+      break;
+  }
+  
+  saveMessageLoggerConfig(loggerConfig);
+  
+  await interaction.reply({
+    content: `${featureName} has been ${toggledValue ? 'enabled' : 'disabled'}.`,
+    ephemeral: true
+  });
+}
+
+/**
  * Handle the status subcommand
  * @param interaction Command interaction
  */
@@ -586,6 +723,8 @@ async function handleStatusCommand(interaction: CommandInteraction): Promise<voi
   
   statusMessage += `Message edits logging: ${loggerConfig.logEdits ? 'Enabled' : 'Disabled'}\n`;
   statusMessage += `Message deletions logging: ${loggerConfig.logDeletes ? 'Enabled' : 'Disabled'}\n`;
+  statusMessage += `Member joins logging: ${loggerConfig.logJoins ? 'Enabled' : 'Disabled'}\n`;
+  statusMessage += `Member leaves logging: ${loggerConfig.logLeaves ? 'Enabled' : 'Disabled'}\n`;
   statusMessage += `DM logging: ${loggerConfig.logDMs ? 'Enabled' : 'Disabled'}\n`;
   
   if (loggerConfig.ignoredChannels.length > 0) {
@@ -920,7 +1059,7 @@ async function logMessageDeletion(client: Client, message: Message | PartialMess
         `**Channel:** ${isDM ? 'Direct Message' : `<#${message.channelId}>`}\n` +
         `**Message ID:** ${message.id}\n` +
         `**Creation Time:** <t:${Math.floor(message.createdTimestamp! / 1000)}:F>\n` +
-        `**Deletion Time:** <t:${Math.floor(Date.now() / 1000)}:F}`
+        `**Deletion Time:** <t:${Math.floor(Date.now() / 1000)}:F>`
       )
       .setTimestamp();
     
@@ -1052,5 +1191,188 @@ async function logBulkDeletion(
     }
   } catch (error) {
     console.error('Error logging bulk deletion:', error);
+  }
+}
+
+//=============================================================================
+// MEMBER JOIN/LEAVE LOGGING FUNCTIONS
+//=============================================================================
+
+/**
+ * Log a member joining the server
+ * @param client Discord.js client
+ * @param member The member who joined
+ */
+async function logMemberJoin(client: Client, member: GuildMember): Promise<void> {
+  console.log("Attempting to log member join");
+  
+  if (!loggerConfig.logChannelId) {
+    console.log("No log channel configured");
+    return;
+  }
+  
+  try {
+    console.log("Fetching log channel:", loggerConfig.logChannelId);
+    const logChannel = await client.channels.fetch(loggerConfig.logChannelId);
+    console.log("Log channel fetch result:", logChannel ? "Found" : "Not found");
+    
+    if (!logChannel) {
+      console.log("Log channel not found");
+      return;
+    }
+    
+    // Make sure it's a text channel
+    const textChannel = logChannel as TextChannel;
+    
+    // Calculate account age
+    const accountCreation = member.user.createdTimestamp;
+    const accountAgeMs = Date.now() - accountCreation;
+    const accountAgeDays = Math.floor(accountAgeMs / (1000 * 60 * 60 * 24));
+    
+    // Create the embed
+    const embed = new EmbedBuilder()
+      .setAuthor({
+        name: member.user.tag,
+        iconURL: member.user.displayAvatarURL()
+      })
+      .setTitle('Member Joined')
+      .setColor(0x00FF00) // Green for joins
+      .setDescription(
+        `**Member:** <@${member.id}> (${member.id})\n` +
+        `**Server:** ${member.guild.name}\n` +
+        `**Join Time:** <t:${Math.floor(member.joinedTimestamp! / 1000)}:F>\n` +
+        `**Account Created:** <t:${Math.floor(accountCreation / 1000)}:F> (${accountAgeDays} days ago)\n` +
+        `**Server Member Count:** ${member.guild.memberCount}`
+      )
+      .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
+      .setTimestamp();
+    
+    // Check if it's a new account (less than 7 days old)
+    if (accountAgeDays < 7) {
+      embed.addFields({
+        name: '⚠️ New Account Warning',
+        value: `This account was created only ${accountAgeDays} days ago.`
+      });
+    }
+    
+    console.log("Sending log message to channel");
+    await textChannel.send({ embeds: [embed] });
+    console.log("Log message sent successfully");
+  } catch (error) {
+    console.error('Error logging member join:', error);
+  }
+}
+
+/**
+ * Log a member leaving the server
+ * @param client Discord.js client
+ * @param member The member who left
+ */
+async function logMemberLeave(client: Client, member: GuildMember | PartialGuildMember): Promise<void> {
+  console.log("Attempting to log member leave");
+  
+  if (!loggerConfig.logChannelId) {
+    console.log("No log channel configured");
+    return;
+  }
+  
+  try {
+    console.log("Fetching log channel:", loggerConfig.logChannelId);
+    const logChannel = await client.channels.fetch(loggerConfig.logChannelId);
+    console.log("Log channel fetch result:", logChannel ? "Found" : "Not found");
+    
+    if (!logChannel) {
+      console.log("Log channel not found");
+      return;
+    }
+    
+    // Make sure it's a text channel
+    const textChannel = logChannel as TextChannel;
+    
+    // Calculate time spent in the server
+    const joinTimestamp = member.joinedTimestamp;
+    if (!joinTimestamp) {
+      console.log("No join timestamp available for member");
+      
+      // Create a basic embed without join time info
+      const basicEmbed = new EmbedBuilder()
+        .setAuthor({
+          name: member.user.tag,
+          iconURL: member.user.displayAvatarURL()
+        })
+        .setTitle('Member Left')
+        .setColor(0xFF0000) // Red for leaves
+        .setDescription(
+          `**Member:** <@${member.id}> (${member.id})\n` +
+          `**Server:** ${member.guild.name}\n` +
+          `**Leave Time:** <t:${Math.floor(Date.now() / 1000)}:F>\n` +
+          `**Server Member Count:** ${member.guild.memberCount}`
+        )
+        .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
+        .setTimestamp();
+      
+      await textChannel.send({ embeds: [basicEmbed] });
+      return;
+    }
+    
+    const timeInServerMs = Date.now() - joinTimestamp;
+    const timeInServerDays = Math.floor(timeInServerMs / (1000 * 60 * 60 * 24));
+    const timeInServerHours = Math.floor((timeInServerMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const timeInServerMinutes = Math.floor((timeInServerMs % (1000 * 60 * 60)) / (1000 * 60));
+    
+    // Format time in server
+    let timeInServerString = '';
+    if (timeInServerDays > 0) {
+      timeInServerString += `${timeInServerDays} days, `;
+    }
+    if (timeInServerHours > 0 || timeInServerDays > 0) {
+      timeInServerString += `${timeInServerHours} hours, `;
+    }
+    timeInServerString += `${timeInServerMinutes} minutes`;
+    
+    // Create the embed
+    const embed = new EmbedBuilder()
+      .setAuthor({
+        name: member.user.tag,
+        iconURL: member.user.displayAvatarURL()
+      })
+      .setTitle('Member Left')
+      .setColor(0xFF0000) // Red for leaves
+      .setDescription(
+        `**Member:** <@${member.id}> (${member.id})\n` +
+        `**Server:** ${member.guild.name}\n` +
+        `**Leave Time:** <t:${Math.floor(Date.now() / 1000)}:F>\n` +
+        `**Join Time:** <t:${Math.floor(joinTimestamp / 1000)}:F>\n` +
+        `**Time in Server:** ${timeInServerString}\n` +
+        `**Server Member Count:** ${member.guild.memberCount}`
+      )
+      .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
+      .setTimestamp();
+    
+    // Check if they were a recent join (less than 1 day)
+    if (timeInServerDays < 1) {
+      embed.addFields({
+        name: '⚠️ Quick Leave',
+        value: `This member left after only ${timeInServerString} in the server.`
+      });
+    }
+    
+    // Check if they had roles (only available on full GuildMember objects)
+    if ('roles' in member && member.roles instanceof Collection) {
+      const roles = member.roles.cache.filter(role => role.name !== '@everyone');
+      if (roles.size > 0) {
+        const roleList = roles.map(role => role.toString()).join(', ');
+        embed.addFields({
+          name: 'Roles',
+          value: roleList
+        });
+      }
+    }
+    
+    console.log("Sending log message to channel");
+    await textChannel.send({ embeds: [embed] });
+    console.log("Log message sent successfully");
+  } catch (error) {
+    console.error('Error logging member leave:', error);
   }
 }
