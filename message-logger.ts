@@ -1,0 +1,864 @@
+// message-logger.ts - A message logging system for the Roommates Helper bot
+import { 
+  Client, 
+  TextChannel,
+  Message,
+  PartialMessage,
+  EmbedBuilder,
+  SlashCommandBuilder,
+  CommandInteraction,
+  PermissionFlagsBits,
+  ChannelType,
+  Events,
+  Snowflake,
+  GuildTextBasedChannel,
+  MessageType
+} from 'discord.js';
+import fs from 'fs';
+
+// Configuration interface
+interface MessageLoggerConfig {
+  enabled: boolean;
+  logChannelId?: string;
+  ignoredChannels: string[];
+  ignoredUsers: string[];
+  logMessageContent: boolean;
+  logDMs: boolean;
+  logEdits: boolean;
+  logDeletes: boolean;
+  maxMessageLength: number;
+}
+
+// Default configuration
+const defaultConfig: MessageLoggerConfig = {
+  enabled: false,
+  logChannelId: undefined,
+  ignoredChannels: [],
+  ignoredUsers: [],
+  logMessageContent: true,
+  logDMs: false,
+  logEdits: true,
+  logDeletes: true,
+  maxMessageLength: 1000 // Maximum message length to log
+};
+
+// Current configuration
+let loggerConfig: MessageLoggerConfig = { ...defaultConfig };
+
+// Cache recently deleted messages to correlate bulk deletions
+const recentlyDeleted = new Map<string, Message>();
+
+// File path for configuration
+const CONFIG_FILE = 'message_logger_config.json';
+
+/**
+ * Load the message logger configuration
+ */
+export function loadMessageLoggerConfig(): MessageLoggerConfig {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const configData = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+      loggerConfig = { ...defaultConfig, ...configData };
+      console.log(`Message logger configuration loaded: ${loggerConfig.enabled ? 'Enabled' : 'Disabled'}`);
+      
+      if (loggerConfig.enabled && !loggerConfig.logChannelId) {
+        console.warn('Message logger is enabled but no log channel is configured');
+      }
+    } else {
+      // Create default config file if it doesn't exist
+      saveMessageLoggerConfig(loggerConfig);
+    }
+  } catch (error) {
+    console.error("Error loading message logger config:", error);
+  }
+  
+  return loggerConfig;
+}
+
+/**
+ * Save the message logger configuration
+ */
+export function saveMessageLoggerConfig(config: MessageLoggerConfig): void {
+  try {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+    loggerConfig = config;
+    console.log(`Message logger configuration saved: ${config.enabled ? 'Enabled' : 'Disabled'}`);
+  } catch (error) {
+    console.error("Error saving message logger config:", error);
+    throw error;
+  }
+}
+
+/**
+ * Register the message logger commands
+ */
+export function registerMessageLoggerCommands(commandsArray: any[]): void {
+  const loggerCommand = new SlashCommandBuilder()
+    .setName('logger')
+    .setDescription('Configure message logging')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('setchannel')
+        .setDescription('Set the channel for message logs')
+        .addChannelOption(option =>
+          option
+            .setName('channel')
+            .setDescription('The channel where message logs will be sent')
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('enable')
+        .setDescription('Enable message logging')
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('disable')
+        .setDescription('Disable message logging')
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('status')
+        .setDescription('Check the current message logging status')
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('ignore')
+        .setDescription('Add a channel or user to the ignore list')
+        .addStringOption(option =>
+          option
+            .setName('type')
+            .setDescription('What to ignore')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Channel', value: 'channel' },
+              { name: 'User', value: 'user' }
+            )
+        )
+        .addStringOption(option =>
+          option
+            .setName('id')
+            .setDescription('The ID of the channel or user to ignore')
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('unignore')
+        .setDescription('Remove a channel or user from the ignore list')
+        .addStringOption(option =>
+          option
+            .setName('type')
+            .setDescription('What to unignore')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Channel', value: 'channel' },
+              { name: 'User', value: 'user' }
+            )
+        )
+        .addStringOption(option =>
+          option
+            .setName('id')
+            .setDescription('The ID of the channel or user to unignore')
+            .setRequired(true)
+        )
+    )
+    .toJSON();
+
+  commandsArray.push(loggerCommand);
+}
+
+/**
+ * Set up the message logger
+ */
+export function setupMessageLogger(client: Client): void {
+  // Load the configuration
+  loadMessageLoggerConfig();
+
+  // Set up event listeners for message creation
+  client.on(Events.MessageCreate, async (message: Message) => {
+    if (!loggerConfig.enabled || !loggerConfig.logChannelId) return;
+    if (message.author.bot) return; // Ignore bot messages
+    
+    // Don't log messages in the log channel itself
+    if (message.channelId === loggerConfig.logChannelId) return;
+    
+    // Check if this is a DM
+    const isDM = message.channel.type === ChannelType.DM;
+    if (isDM && !loggerConfig.logDMs) return;
+    
+    // Check ignored channels and users
+    if (!isDM && loggerConfig.ignoredChannels.includes(message.channelId)) return;
+    if (loggerConfig.ignoredUsers.includes(message.author.id)) return;
+    
+    // For now, don't log message creations
+    // The below code would log message creations if you decide to enable it later
+    /*
+    try {
+      await logMessageCreation(client, message);
+    } catch (error) {
+      console.error("Error logging message creation:", error);
+    }
+    */
+  });
+
+  // Set up event listeners for message updates (edits)
+  client.on(Events.MessageUpdate, async (oldMessage: Message | PartialMessage, newMessage: Message | PartialMessage) => {
+    if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logEdits) return;
+    if (newMessage.author?.bot) return; // Ignore bot messages
+    
+    // Don't log edits in the log channel itself
+    if (newMessage.channelId === loggerConfig.logChannelId) return;
+    
+    // Check if this is a DM
+    const isDM = newMessage.channel?.type === ChannelType.DM;
+    if (isDM && !loggerConfig.logDMs) return;
+    
+    // Check ignored channels and users
+    if (!isDM && loggerConfig.ignoredChannels.includes(newMessage.channelId)) return;
+    if (newMessage.author && loggerConfig.ignoredUsers.includes(newMessage.author.id)) return;
+    
+    try {
+      // Only log if the content has changed and isn't empty
+      if (oldMessage.content !== newMessage.content && 
+          oldMessage.content !== null && 
+          newMessage.content !== null) {
+        await logMessageEdit(client, oldMessage, newMessage);
+      }
+    } catch (error) {
+      console.error("Error logging message edit:", error);
+    }
+  });
+
+  // Set up event listeners for message deletions
+  client.on(Events.MessageDelete, async (message: Message | PartialMessage) => {
+    if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logDeletes) return;
+    if (message.author?.bot) return; // Ignore bot messages
+    
+    // Don't log deletions in the log channel itself
+    if (message.channelId === loggerConfig.logChannelId) return;
+    
+    // Check if this is a DM
+    const isDM = message.channel?.type === ChannelType.DM;
+    if (isDM && !loggerConfig.logDMs) return;
+    
+    // Check ignored channels and users
+    if (!isDM && loggerConfig.ignoredChannels.includes(message.channelId)) return;
+    if (message.author && loggerConfig.ignoredUsers.includes(message.author.id)) return;
+    
+    try {
+      // Cache this message for potential bulk deletion correlation
+      if (message.id && message.content) {
+        recentlyDeleted.set(message.id, message as Message);
+        
+        // Remove from cache after 10 seconds
+        setTimeout(() => {
+          recentlyDeleted.delete(message.id);
+        }, 10000);
+      }
+      
+      await logMessageDeletion(client, message);
+    } catch (error) {
+      console.error("Error logging message deletion:", error);
+    }
+  });
+
+  // Set up event listeners for bulk message deletions
+  client.on(Events.MessageBulkDelete, async (messages, channel) => {
+    if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logDeletes) return;
+    
+    // Don't log deletions in the log channel itself
+    if (channel.id === loggerConfig.logChannelId) return;
+    
+    // Check if this is a DM channel
+    const isDM = channel.type === ChannelType.DM;
+    if (isDM && !loggerConfig.logDMs) return;
+    
+    // Check ignored channels
+    if (!isDM && loggerConfig.ignoredChannels.includes(channel.id)) return;
+    
+    try {
+      await logBulkDeletion(client, messages, channel);
+    } catch (error) {
+      console.error("Error logging bulk deletion:", error);
+    }
+  });
+  
+  console.log("Message logger set up successfully");
+}
+
+/**
+ * Handle the logger command
+ */
+export async function handleLoggerCommand(interaction: CommandInteraction): Promise<void> {
+  if (!interaction.isChatInputCommand()) return;
+  
+  const subcommand = interaction.options.getSubcommand();
+  
+  switch (subcommand) {
+    case 'setchannel':
+      await handleSetChannelCommand(interaction);
+      break;
+    case 'enable':
+      await handleEnableCommand(interaction);
+      break;
+    case 'disable':
+      await handleDisableCommand(interaction);
+      break;
+    case 'status':
+      await handleStatusCommand(interaction);
+      break;
+    case 'ignore':
+      await handleIgnoreCommand(interaction);
+      break;
+    case 'unignore':
+      await handleUnignoreCommand(interaction);
+      break;
+  }
+}
+
+/**
+ * Handle the setchannel subcommand
+ */
+async function handleSetChannelCommand(interaction: CommandInteraction): Promise<void> {
+  if (!interaction.isChatInputCommand()) return;
+  
+  const channel = interaction.options.getChannel('channel');
+  
+  if (!channel || channel.type !== ChannelType.GuildText) {
+    await interaction.reply({
+      content: 'Please select a valid text channel.',
+      ephemeral: true
+    });
+    return;
+  }
+  
+  try {
+    // Send a test message to confirm permissions
+    const testMsg = await (channel as TextChannel).send({
+      content: 'Message logger channel set successfully! This is a test message to confirm permissions.',
+    });
+    
+    // If the message was sent successfully, save the config
+    loggerConfig.logChannelId = channel.id;
+    saveMessageLoggerConfig(loggerConfig);
+    
+    // Delete the test message after a few seconds
+    setTimeout(() => {
+      testMsg.delete().catch(e => console.error("Could not delete test message:", e));
+    }, 5000);
+    
+    await interaction.reply({
+      content: `Message log channel set to ${channel.toString()}`,
+      ephemeral: true
+    });
+  } catch (error) {
+    console.error("Failed to send test message to channel:", error);
+    await interaction.reply({
+      content: `I don't have permission to send messages in ${channel.toString()}. Please check my permissions.`,
+      ephemeral: true
+    });
+  }
+}
+
+/**
+ * Handle the enable subcommand
+ */
+async function handleEnableCommand(interaction: CommandInteraction): Promise<void> {
+  if (!loggerConfig.logChannelId) {
+    await interaction.reply({
+      content: 'No log channel has been set. Please use `/logger setchannel` first.',
+      ephemeral: true
+    });
+    return;
+  }
+  
+  loggerConfig.enabled = true;
+  saveMessageLoggerConfig(loggerConfig);
+  
+  await interaction.reply({
+    content: `Message logging has been enabled. Logs will be sent to <#${loggerConfig.logChannelId}>.`,
+    ephemeral: true
+  });
+}
+
+/**
+ * Handle the disable subcommand
+ */
+async function handleDisableCommand(interaction: CommandInteraction): Promise<void> {
+  loggerConfig.enabled = false;
+  saveMessageLoggerConfig(loggerConfig);
+  
+  await interaction.reply({
+    content: 'Message logging has been disabled.',
+    ephemeral: true
+  });
+}
+
+/**
+ * Handle the status subcommand
+ */
+async function handleStatusCommand(interaction: CommandInteraction): Promise<void> {
+  let statusMessage = `Message logging is currently ${loggerConfig.enabled ? 'enabled' : 'disabled'}.\n`;
+  
+  if (loggerConfig.logChannelId) {
+    statusMessage += `Log channel: <#${loggerConfig.logChannelId}>\n`;
+  } else {
+    statusMessage += 'No log channel has been set.\n';
+  }
+  
+  statusMessage += `Message edits logging: ${loggerConfig.logEdits ? 'Enabled' : 'Disabled'}\n`;
+  statusMessage += `Message deletions logging: ${loggerConfig.logDeletes ? 'Enabled' : 'Disabled'}\n`;
+  statusMessage += `DM logging: ${loggerConfig.logDMs ? 'Enabled' : 'Disabled'}\n`;
+  
+  if (loggerConfig.ignoredChannels.length > 0) {
+    statusMessage += '\nIgnored Channels:\n';
+    loggerConfig.ignoredChannels.forEach(channelId => {
+      statusMessage += `- <#${channelId}>\n`;
+    });
+  }
+  
+  if (loggerConfig.ignoredUsers.length > 0) {
+    statusMessage += '\nIgnored Users:\n';
+    loggerConfig.ignoredUsers.forEach(userId => {
+      statusMessage += `- <@${userId}>\n`;
+    });
+  }
+  
+  await interaction.reply({
+    content: statusMessage,
+    ephemeral: true
+  });
+}
+
+/**
+ * Handle the ignore subcommand
+ */
+async function handleIgnoreCommand(interaction: CommandInteraction): Promise<void> {
+  if (!interaction.isChatInputCommand()) return;
+  
+  const type = interaction.options.getString('type', true);
+  const id = interaction.options.getString('id', true);
+  
+  if (!id.match(/^\d+$/)) {
+    await interaction.reply({
+      content: 'Please provide a valid ID (numbers only).',
+      ephemeral: true
+    });
+    return;
+  }
+  
+  try {
+    if (type === 'channel') {
+      // Check if the channel exists
+      try {
+        const channel = await interaction.client.channels.fetch(id);
+        if (!channel) {
+          await interaction.reply({
+            content: 'That channel does not exist or I cannot access it.',
+            ephemeral: true
+          });
+          return;
+        }
+      } catch (error) {
+        await interaction.reply({
+          content: 'That channel does not exist or I cannot access it.',
+          ephemeral: true
+        });
+        return;
+      }
+      
+      // Add to ignored channels if not already there
+      if (!loggerConfig.ignoredChannels.includes(id)) {
+        loggerConfig.ignoredChannels.push(id);
+        saveMessageLoggerConfig(loggerConfig);
+        
+        await interaction.reply({
+          content: `Channel <#${id}> has been added to the ignore list.`,
+          ephemeral: true
+        });
+      } else {
+        await interaction.reply({
+          content: `Channel <#${id}> is already in the ignore list.`,
+          ephemeral: true
+        });
+      }
+    } else if (type === 'user') {
+      // Check if the user exists
+      try {
+        const user = await interaction.client.users.fetch(id);
+        if (!user) {
+          await interaction.reply({
+            content: 'That user does not exist or I cannot access them.',
+            ephemeral: true
+          });
+          return;
+        }
+      } catch (error) {
+        await interaction.reply({
+          content: 'That user does not exist or I cannot access them.',
+          ephemeral: true
+        });
+        return;
+      }
+      
+      // Add to ignored users if not already there
+      if (!loggerConfig.ignoredUsers.includes(id)) {
+        loggerConfig.ignoredUsers.push(id);
+        saveMessageLoggerConfig(loggerConfig);
+        
+        await interaction.reply({
+          content: `User <@${id}> has been added to the ignore list.`,
+          ephemeral: true
+        });
+      } else {
+        await interaction.reply({
+          content: `User <@${id}> is already in the ignore list.`,
+          ephemeral: true
+        });
+      }
+    }
+  } catch (error) {
+    console.error("Error handling ignore command:", error);
+    await interaction.reply({
+      content: 'There was an error processing your request.',
+      ephemeral: true
+    });
+  }
+}
+
+/**
+ * Handle the unignore subcommand
+ */
+async function handleUnignoreCommand(interaction: CommandInteraction): Promise<void> {
+  if (!interaction.isChatInputCommand()) return;
+  
+  const type = interaction.options.getString('type', true);
+  const id = interaction.options.getString('id', true);
+  
+  if (!id.match(/^\d+$/)) {
+    await interaction.reply({
+      content: 'Please provide a valid ID (numbers only).',
+      ephemeral: true
+    });
+    return;
+  }
+  
+  try {
+    if (type === 'channel') {
+      // Remove from ignored channels
+      const index = loggerConfig.ignoredChannels.indexOf(id);
+      if (index !== -1) {
+        loggerConfig.ignoredChannels.splice(index, 1);
+        saveMessageLoggerConfig(loggerConfig);
+        
+        await interaction.reply({
+          content: `Channel <#${id}> has been removed from the ignore list.`,
+          ephemeral: true
+        });
+      } else {
+        await interaction.reply({
+          content: `Channel <#${id}> is not in the ignore list.`,
+          ephemeral: true
+        });
+      }
+    } else if (type === 'user') {
+      // Remove from ignored users
+      const index = loggerConfig.ignoredUsers.indexOf(id);
+      if (index !== -1) {
+        loggerConfig.ignoredUsers.splice(index, 1);
+        saveMessageLoggerConfig(loggerConfig);
+        
+        await interaction.reply({
+          content: `User <@${id}> has been removed from the ignore list.`,
+          ephemeral: true
+        });
+      } else {
+        await interaction.reply({
+          content: `User <@${id}> is not in the ignore list.`,
+          ephemeral: true
+        });
+      }
+    }
+  } catch (error) {
+    console.error("Error handling unignore command:", error);
+    await interaction.reply({
+      content: 'There was an error processing your request.',
+      ephemeral: true
+    });
+  }
+}
+
+/**
+ * Log a message creation (not currently used but included for completeness)
+ */
+async function logMessageCreation(client: Client, message: Message): Promise<void> {
+  if (!loggerConfig.logChannelId) return;
+  
+  try {
+    const logChannel = await client.channels.fetch(loggerConfig.logChannelId) as TextChannel;
+    if (!logChannel) return;
+    
+    const isDM = message.channel.type === ChannelType.DM;
+    
+    const embed = new EmbedBuilder()
+      .setAuthor({
+        name: message.author.tag,
+        iconURL: message.author.displayAvatarURL()
+      })
+      .setTitle('Message Created')
+      .setColor(0x00FF00) // Green for created
+      .setDescription(
+        `**Author:** <@${message.author.id}> (${message.author.id})\n` +
+        `**Channel:** ${isDM ? 'Direct Message' : `<#${message.channelId}>`}\n` +
+        `**Time:** <t:${Math.floor(message.createdTimestamp / 1000)}:F>`
+      )
+      .setTimestamp();
+    
+    // Add message content if enabled
+    if (loggerConfig.logMessageContent && message.content) {
+      let content = message.content;
+      
+      // Truncate long messages
+      if (content.length > loggerConfig.maxMessageLength) {
+        content = content.substring(0, loggerConfig.maxMessageLength) + '...';
+      }
+      
+      embed.addFields({
+        name: 'Content',
+        value: content || '(No content)'
+      });
+    }
+    
+    // Add attachments if any
+    if (message.attachments.size > 0) {
+      const attachmentsList = message.attachments.map(a => `[${a.name || 'Attachment'}](${a.url})`).join('\n');
+      embed.addFields({
+        name: 'Attachments',
+        value: attachmentsList
+      });
+    }
+    
+    await logChannel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error('Error logging message creation:', error);
+  }
+}
+
+/**
+ * Log a message edit
+ */
+async function logMessageEdit(
+  client: Client, 
+  oldMessage: Message | PartialMessage, 
+  newMessage: Message | PartialMessage
+): Promise<void> {
+  if (!loggerConfig.logChannelId) return;
+  
+  try {
+    const logChannel = await client.channels.fetch(loggerConfig.logChannelId) as TextChannel;
+    if (!logChannel) return;
+    
+    const isDM = newMessage.channel?.type === ChannelType.DM;
+    const author = newMessage.author;
+    
+    if (!author) return;
+    
+    const embed = new EmbedBuilder()
+      .setAuthor({
+        name: author.tag,
+        iconURL: author.displayAvatarURL()
+      })
+      .setTitle('Message Edited')
+      .setColor(0xFFA500) // Orange for edits
+      .setDescription(
+        `**Author:** <@${author.id}> (${author.id})\n` +
+        `**Channel:** ${isDM ? 'Direct Message' : `<#${newMessage.channelId}>`}\n` +
+        `**Message ID:** ${newMessage.id}\n` +
+        `**Edit Time:** <t:${Math.floor(Date.now() / 1000)}:F>\n` +
+        `**Original Time:** <t:${Math.floor(newMessage.createdTimestamp! / 1000)}:F>`
+      )
+      .setTimestamp();
+    
+    // Add message content if enabled
+    if (loggerConfig.logMessageContent) {
+      // Before content
+      let beforeContent = oldMessage.content || '';
+      if (beforeContent.length > loggerConfig.maxMessageLength) {
+        beforeContent = beforeContent.substring(0, loggerConfig.maxMessageLength) + '...';
+      }
+      
+      // After content
+      let afterContent = newMessage.content || '';
+      if (afterContent.length > loggerConfig.maxMessageLength) {
+        afterContent = afterContent.substring(0, loggerConfig.maxMessageLength) + '...';
+      }
+      
+      embed.addFields(
+        {
+          name: 'Before',
+          value: beforeContent || '(No content)'
+        },
+        {
+          name: 'After',
+          value: afterContent || '(No content)'
+        }
+      );
+    }
+    
+    if (!isDM) {
+      embed.addFields({
+        name: 'Jump to Message',
+        value: `[Click to view](https://discord.com/channels/${newMessage.guildId}/${newMessage.channelId}/${newMessage.id})`
+      });
+    }
+    
+    await logChannel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error('Error logging message edit:', error);
+  }
+}
+
+/**
+ * Log a message deletion
+ */
+async function logMessageDeletion(client: Client, message: Message | PartialMessage): Promise<void> {
+  if (!loggerConfig.logChannelId) return;
+  
+  try {
+    const logChannel = await client.channels.fetch(loggerConfig.logChannelId) as TextChannel;
+    if (!logChannel) return;
+    
+    const isDM = message.channel?.type === ChannelType.DM;
+    const author = message.author;
+    
+    // Skip if we can't determine the author (happens with partial messages)
+    if (!author) return;
+    
+    const embed = new EmbedBuilder()
+      .setAuthor({
+        name: author.tag,
+        iconURL: author.displayAvatarURL()
+      })
+      .setTitle('Message Deleted')
+      .setColor(0xFF0000) // Red for deletions
+      .setDescription(
+        `**Author:** <@${author.id}> (${author.id})\n` +
+        `**Channel:** ${isDM ? 'Direct Message' : `<#${message.channelId}>`}\n` +
+        `**Message ID:** ${message.id}\n` +
+        `**Creation Time:** <t:${Math.floor(message.createdTimestamp! / 1000)}:F>\n` +
+        `**Deletion Time:** <t:${Math.floor(Date.now() / 1000)}:F}`
+      )
+      .setTimestamp();
+    
+    // Add message content if enabled
+    if (loggerConfig.logMessageContent && message.content) {
+      let content = message.content;
+      
+      // Truncate long messages
+      if (content.length > loggerConfig.maxMessageLength) {
+        content = content.substring(0, loggerConfig.maxMessageLength) + '...';
+      }
+      
+      embed.addFields({
+        name: 'Content',
+        value: content || '(No content)'
+      });
+    }
+    
+    // Add attachments if any
+    if (message.attachments && message.attachments.size > 0) {
+      const attachmentsList = message.attachments.map(a => `[${a.name || 'Attachment'}](${a.url})`).join('\n');
+      embed.addFields({
+        name: 'Attachments',
+        value: attachmentsList
+      });
+    }
+    
+    await logChannel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error('Error logging message deletion:', error);
+  }
+}
+
+/**
+ * Log bulk message deletions
+ */
+async function logBulkDeletion(
+  client: Client,
+  messages: Collection<string, Message | PartialMessage>,
+  channel: GuildTextBasedChannel
+): Promise<void> {
+  if (!loggerConfig.logChannelId) return;
+  
+  try {
+    const logChannel = await client.channels.fetch(loggerConfig.logChannelId) as TextChannel;
+    if (!logChannel) return;
+    
+    const embed = new EmbedBuilder()
+      .setTitle('Bulk Message Deletion')
+      .setColor(0xFF0000) // Red for deletions
+      .setDescription(
+        `**Channel:** <#${channel.id}>\n` +
+        `**Message Count:** ${messages.size}\n` +
+        `**Deletion Time:** <t:${Math.floor(Date.now() / 1000)}:F>`
+      )
+      .setTimestamp();
+    
+    await logChannel.send({ embeds: [embed] });
+    
+    // If content logging is enabled, create a detailed log
+    if (loggerConfig.logMessageContent) {
+      // Sort messages by timestamp, oldest first
+      const sortedMessages = [...messages.values()].sort((a, b) => 
+        (a.createdTimestamp || 0) - (b.createdTimestamp || 0)
+      );
+      
+      let logContent = `# Bulk Deletion Log\n\n`;
+      logContent += `**Channel:** <#${channel.id}> (${channel.name})\n`;
+      logContent += `**Message Count:** ${messages.size}\n`;
+      logContent += `**Deletion Time:** <t:${Math.floor(Date.now() / 1000)}:F>\n\n`;
+      
+      sortedMessages.forEach((msg, index) => {
+        if (!msg.author) return;
+        
+        logContent += `## Message ${index + 1}\n`;
+        logContent += `**Author:** ${msg.author.tag} (${msg.author.id})\n`;
+        logContent += `**Created:** <t:${Math.floor(msg.createdTimestamp! / 1000)}:F>\n`;
+        
+        if (msg.content) {
+          logContent += `**Content:**\n\`\`\`\n${msg.content}\n\`\`\`\n`;
+        } else {
+          logContent += `**Content:** (No content)\n`;
+        }
+        
+        if (msg.attachments && msg.attachments.size > 0) {
+          logContent += `**Attachments:**\n`;
+          msg.attachments.forEach(attachment => {
+            logContent += `- [${attachment.name || 'Attachment'}](${attachment.url})\n`;
+          });
+        }
+        
+        logContent += `\n`;
+      });
+      
+      // If the log is too long, split it or send as a file
+      if (logContent.length <= 2000) {
+        await logChannel.send({ content: logContent });
+      } else {
+        // Create a buffer for the file
+        const buffer = Buffer.from(logContent, 'utf8');
+        const attachment = new AttachmentBuilder(buffer, { name: `bulk-deletion-${Date.now()}.txt` });
+        
+        await logChannel.send({ 
+          content: 'Detailed log of bulk deletion:',
+          files: [attachment]
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error logging bulk deletion:', error);
+  }
+}

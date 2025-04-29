@@ -43,6 +43,14 @@ import {
   handleVerificationModal
 } from './verification';
 
+// Import message logger system
+import { 
+  registerMessageLoggerCommands, 
+  setupMessageLogger, 
+  handleLoggerCommand, 
+  loadMessageLoggerConfig 
+} from './message-logger';
+
 // Import health check system
 import { writeHealthStatus } from './healthcheck';
 
@@ -210,6 +218,9 @@ async function registerCommands() {
 
   // Add verification commands to the array
   registerVerificationCommands(commands);
+  
+  // Add message logger commands to the array
+  registerMessageLoggerCommands(commands);
 
   try {
     console.log('Started refreshing application (/) commands.');
@@ -550,6 +561,9 @@ client.once(Events.ClientReady, async () => {
   // Explicitly load verification config
   loadVerificationConfig();
   
+  // Set up the message logger
+  setupMessageLogger(client);
+  
   // Update health status when bot is ready
   writeHealthStatus('online', startTime);
   
@@ -642,6 +656,10 @@ async function handleCommandInteraction(interaction: ChatInputCommandInteraction
       
       case 'modverify':
         await handleModVerifyCommand(interaction);
+        break;
+        
+      case 'logger':
+        await handleLoggerCommand(interaction);
         break;
         
       default:

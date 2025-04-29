@@ -8,6 +8,7 @@ services:
     volumes:
       - ./roommates_roles.txt:/usr/src/app/roommates_roles.txt
       - ./verification_config.json:/usr/src/app/verification_config.json
+      - ./message_logger_config.json:/usr/src/app/message_logger_config.json
       - ./health.json:/usr/src/app/health.json
     env_file:
       - .env
