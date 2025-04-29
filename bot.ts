@@ -5,6 +5,7 @@
  * - Color role management
  * - Age verification system
  * - Message logging system
+ * - Welcome DM system
  * 
  * @license MIT
  * @copyright 2025 Clove Twilight
@@ -71,6 +72,15 @@ import {
   loadMessageLoggerConfig,
   testLoggerChannel
 } from './message-logger';
+
+//=============================================================================
+// IMPORT WELCOME DM SYSTEM
+//=============================================================================
+
+import {
+  setupWelcomeDM,
+  sendWelcomeDM
+} from './welcome-dm';
 
 //=============================================================================
 // IMPORT HEALTH CHECK SYSTEM
@@ -637,6 +647,9 @@ client.once(Events.ClientReady, async () => {
   // Set up the message logger
   setupMessageLogger(client);
   
+  // Set up the welcome DM system
+  setupWelcomeDM(client);
+  
   // Test the message logger channel
   await testLoggerChannel(client);
   
@@ -664,6 +677,9 @@ client.on(Events.GuildMemberAdd, async (member: GuildMember) => {
   try {
     console.log(`New member joined: ${member.user.tag}`);
     
+    // Send welcome DM to the new member
+    await sendWelcomeDM(member);
+    
     // Get the unverified role ID (either from env or config)
     const unverifiedRoleId = getAgeUnverifiedRoleId();
     
@@ -683,7 +699,7 @@ client.on(Events.GuildMemberAdd, async (member: GuildMember) => {
     await member.roles.add(role);
     console.log(`Assigned Age Unverified role to new member: ${member.user.tag}`);
   } catch (error) {
-    console.error('Error assigning Age Unverified role to new member:', error);
+    console.error('Error processing new member:', error);
   }
 });
 
