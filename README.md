@@ -1,4 +1,4 @@
-# The Roommates Helper Discord Bot
+# The Roommates Helper Discord Bot - BETA
 
 A Discord bot designed to help manage the Roommates Discord server with features including:
 
@@ -6,6 +6,8 @@ A Discord bot designed to help manage the Roommates Discord server with features
 - Age verification system for 18+ content
 - Auto-role assignment for new members
 - Role management utilities
+
+## THIS BOT IS BETA AND MAY BE UNSTABLE TO USE IN PRODUCTION!
 
 ## Setup Instructions
 
