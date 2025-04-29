@@ -1895,7 +1895,7 @@ async function muteUser(
         if (duration > 0) {
           embed.addFields({
             name: 'Expires',
-            value: `<t:${Math.floor(expiresAt! / 1000)}:R> (<t:${Math.floor(expiresAt! / 1000):F>)`
+            value: `<t:${Math.floor(expiresAt! / 1000)}:F>))`
           });
         }
         
