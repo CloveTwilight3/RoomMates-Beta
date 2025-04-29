@@ -10,9 +10,13 @@ import {
   PermissionFlagsBits,
   ChannelType,
   Events,
-  Snowflake,
   GuildTextBasedChannel,
-  MessageType
+  Collection,
+  Attachment,
+  AttachmentBuilder,
+  Channel,
+  BaseChannel,
+  GuildChannel
 } from 'discord.js';
 import fs from 'fs';
 
@@ -44,9 +48,6 @@ const defaultConfig: MessageLoggerConfig = {
 
 // Current configuration
 let loggerConfig: MessageLoggerConfig = { ...defaultConfig };
-
-// Cache recently deleted messages to correlate bulk deletions
-const recentlyDeleted = new Map<string, Message>();
 
 // File path for configuration
 const CONFIG_FILE = 'message_logger_config.json';
@@ -177,33 +178,6 @@ export function setupMessageLogger(client: Client): void {
   // Load the configuration
   loadMessageLoggerConfig();
 
-  // Set up event listeners for message creation
-  client.on(Events.MessageCreate, async (message: Message) => {
-    if (!loggerConfig.enabled || !loggerConfig.logChannelId) return;
-    if (message.author.bot) return; // Ignore bot messages
-    
-    // Don't log messages in the log channel itself
-    if (message.channelId === loggerConfig.logChannelId) return;
-    
-    // Check if this is a DM
-    const isDM = message.channel.type === ChannelType.DM;
-    if (isDM && !loggerConfig.logDMs) return;
-    
-    // Check ignored channels and users
-    if (!isDM && loggerConfig.ignoredChannels.includes(message.channelId)) return;
-    if (loggerConfig.ignoredUsers.includes(message.author.id)) return;
-    
-    // For now, don't log message creations
-    // The below code would log message creations if you decide to enable it later
-    /*
-    try {
-      await logMessageCreation(client, message);
-    } catch (error) {
-      console.error("Error logging message creation:", error);
-    }
-    */
-  });
-
   // Set up event listeners for message updates (edits)
   client.on(Events.MessageUpdate, async (oldMessage: Message | PartialMessage, newMessage: Message | PartialMessage) => {
     if (!loggerConfig.enabled || !loggerConfig.logChannelId || !loggerConfig.logEdits) return;
@@ -213,7 +187,7 @@ export function setupMessageLogger(client: Client): void {
     if (newMessage.channelId === loggerConfig.logChannelId) return;
     
     // Check if this is a DM
-    const isDM = newMessage.channel?.type === ChannelType.DM;
+    const isDM = newMessage.channel?.type === 0; // 0 is ChannelType.DM
     if (isDM && !loggerConfig.logDMs) return;
     
     // Check ignored channels and users
@@ -241,7 +215,7 @@ export function setupMessageLogger(client: Client): void {
     if (message.channelId === loggerConfig.logChannelId) return;
     
     // Check if this is a DM
-    const isDM = message.channel?.type === ChannelType.DM;
+    const isDM = message.channel?.type === 0; // 0 is ChannelType.DM
     if (isDM && !loggerConfig.logDMs) return;
     
     // Check ignored channels and users
@@ -249,16 +223,6 @@ export function setupMessageLogger(client: Client): void {
     if (message.author && loggerConfig.ignoredUsers.includes(message.author.id)) return;
     
     try {
-      // Cache this message for potential bulk deletion correlation
-      if (message.id && message.content) {
-        recentlyDeleted.set(message.id, message as Message);
-        
-        // Remove from cache after 10 seconds
-        setTimeout(() => {
-          recentlyDeleted.delete(message.id);
-        }, 10000);
-      }
-      
       await logMessageDeletion(client, message);
     } catch (error) {
       console.error("Error logging message deletion:", error);
@@ -273,14 +237,22 @@ export function setupMessageLogger(client: Client): void {
     if (channel.id === loggerConfig.logChannelId) return;
     
     // Check if this is a DM channel
-    const isDM = channel.type === ChannelType.DM;
+    const isDM = channel.type === 0; // 0 is ChannelType.DM
     if (isDM && !loggerConfig.logDMs) return;
     
     // Check ignored channels
     if (!isDM && loggerConfig.ignoredChannels.includes(channel.id)) return;
     
     try {
-      await logBulkDeletion(client, messages, channel);
+      // Create a new Collection to handle messages
+      const messageCollection = new Collection<string, Message | PartialMessage>();
+      
+      // Add each message from the messages collection
+      messages.forEach((message, id) => {
+        messageCollection.set(id, message);
+      });
+      
+      await logBulkDeletion(client, messageCollection, channel);
     } catch (error) {
       console.error("Error logging bulk deletion:", error);
     }
@@ -325,24 +297,44 @@ export async function handleLoggerCommand(interaction: CommandInteraction): Prom
 async function handleSetChannelCommand(interaction: CommandInteraction): Promise<void> {
   if (!interaction.isChatInputCommand()) return;
   
-  const channel = interaction.options.getChannel('channel');
+  const selectedChannel = interaction.options.getChannel('channel');
   
-  if (!channel || channel.type !== ChannelType.GuildText) {
+  if (!selectedChannel) {
     await interaction.reply({
-      content: 'Please select a valid text channel.',
+      content: 'Please select a valid channel.',
+      ephemeral: true
+    });
+    return;
+  }
+  
+  // Check if it's a text-based channel
+  if (![0, 5, 10, 11, 12].includes(selectedChannel.type)) { // Text channel types
+    await interaction.reply({
+      content: 'Please select a text channel. Voice channels and categories cannot be used for logging.',
       ephemeral: true
     });
     return;
   }
   
   try {
+    // Try to fetch the channel to ensure we have access to it
+    const channel = await interaction.client.channels.fetch(selectedChannel.id);
+    
+    if (!channel || !('send' in channel)) {
+      await interaction.reply({
+        content: 'I cannot access that channel or it\'s not a text channel.',
+        ephemeral: true
+      });
+      return;
+    }
+    
     // Send a test message to confirm permissions
     const testMsg = await (channel as TextChannel).send({
       content: 'Message logger channel set successfully! This is a test message to confirm permissions.',
     });
     
     // If the message was sent successfully, save the config
-    loggerConfig.logChannelId = channel.id;
+    loggerConfig.logChannelId = selectedChannel.id;
     saveMessageLoggerConfig(loggerConfig);
     
     // Delete the test message after a few seconds
@@ -351,13 +343,13 @@ async function handleSetChannelCommand(interaction: CommandInteraction): Promise
     }, 5000);
     
     await interaction.reply({
-      content: `Message log channel set to ${channel.toString()}`,
+      content: `Message log channel set to <#${selectedChannel.id}>`,
       ephemeral: true
     });
   } catch (error) {
     console.error("Failed to send test message to channel:", error);
     await interaction.reply({
-      content: `I don't have permission to send messages in ${channel.toString()}. Please check my permissions.`,
+      content: `I don't have permission to send messages in <#${selectedChannel.id}>. Please check my permissions.`,
       ephemeral: true
     });
   }
@@ -592,62 +584,6 @@ async function handleUnignoreCommand(interaction: CommandInteraction): Promise<v
 }
 
 /**
- * Log a message creation (not currently used but included for completeness)
- */
-async function logMessageCreation(client: Client, message: Message): Promise<void> {
-  if (!loggerConfig.logChannelId) return;
-  
-  try {
-    const logChannel = await client.channels.fetch(loggerConfig.logChannelId) as TextChannel;
-    if (!logChannel) return;
-    
-    const isDM = message.channel.type === ChannelType.DM;
-    
-    const embed = new EmbedBuilder()
-      .setAuthor({
-        name: message.author.tag,
-        iconURL: message.author.displayAvatarURL()
-      })
-      .setTitle('Message Created')
-      .setColor(0x00FF00) // Green for created
-      .setDescription(
-        `**Author:** <@${message.author.id}> (${message.author.id})\n` +
-        `**Channel:** ${isDM ? 'Direct Message' : `<#${message.channelId}>`}\n` +
-        `**Time:** <t:${Math.floor(message.createdTimestamp / 1000)}:F>`
-      )
-      .setTimestamp();
-    
-    // Add message content if enabled
-    if (loggerConfig.logMessageContent && message.content) {
-      let content = message.content;
-      
-      // Truncate long messages
-      if (content.length > loggerConfig.maxMessageLength) {
-        content = content.substring(0, loggerConfig.maxMessageLength) + '...';
-      }
-      
-      embed.addFields({
-        name: 'Content',
-        value: content || '(No content)'
-      });
-    }
-    
-    // Add attachments if any
-    if (message.attachments.size > 0) {
-      const attachmentsList = message.attachments.map(a => `[${a.name || 'Attachment'}](${a.url})`).join('\n');
-      embed.addFields({
-        name: 'Attachments',
-        value: attachmentsList
-      });
-    }
-    
-    await logChannel.send({ embeds: [embed] });
-  } catch (error) {
-    console.error('Error logging message creation:', error);
-  }
-}
-
-/**
  * Log a message edit
  */
 async function logMessageEdit(
@@ -658,10 +594,10 @@ async function logMessageEdit(
   if (!loggerConfig.logChannelId) return;
   
   try {
-    const logChannel = await client.channels.fetch(loggerConfig.logChannelId) as TextChannel;
-    if (!logChannel) return;
+    const logChannel = await client.channels.fetch(loggerConfig.logChannelId);
+    if (!logChannel || !('send' in logChannel)) return;
     
-    const isDM = newMessage.channel?.type === ChannelType.DM;
+    const isDM = newMessage.channel?.type === 0; // 0 is ChannelType.DM
     const author = newMessage.author;
     
     if (!author) return;
@@ -708,14 +644,14 @@ async function logMessageEdit(
       );
     }
     
-    if (!isDM) {
+    if (!isDM && newMessage.guildId) {
       embed.addFields({
         name: 'Jump to Message',
         value: `[Click to view](https://discord.com/channels/${newMessage.guildId}/${newMessage.channelId}/${newMessage.id})`
       });
     }
     
-    await logChannel.send({ embeds: [embed] });
+    await (logChannel as TextChannel).send({ embeds: [embed] });
   } catch (error) {
     console.error('Error logging message edit:', error);
   }
@@ -728,10 +664,10 @@ async function logMessageDeletion(client: Client, message: Message | PartialMess
   if (!loggerConfig.logChannelId) return;
   
   try {
-    const logChannel = await client.channels.fetch(loggerConfig.logChannelId) as TextChannel;
-    if (!logChannel) return;
+    const logChannel = await client.channels.fetch(loggerConfig.logChannelId);
+    if (!logChannel || !('send' in logChannel)) return;
     
-    const isDM = message.channel?.type === ChannelType.DM;
+    const isDM = message.channel?.type === 0; // 0 is ChannelType.DM
     const author = message.author;
     
     // Skip if we can't determine the author (happens with partial messages)
@@ -777,7 +713,7 @@ async function logMessageDeletion(client: Client, message: Message | PartialMess
       });
     }
     
-    await logChannel.send({ embeds: [embed] });
+    await (logChannel as TextChannel).send({ embeds: [embed] });
   } catch (error) {
     console.error('Error logging message deletion:', error);
   }
@@ -794,8 +730,8 @@ async function logBulkDeletion(
   if (!loggerConfig.logChannelId) return;
   
   try {
-    const logChannel = await client.channels.fetch(loggerConfig.logChannelId) as TextChannel;
-    if (!logChannel) return;
+    const logChannel = await client.channels.fetch(loggerConfig.logChannelId);
+    if (!logChannel || !('send' in logChannel)) return;
     
     const embed = new EmbedBuilder()
       .setTitle('Bulk Message Deletion')
@@ -807,7 +743,7 @@ async function logBulkDeletion(
       )
       .setTimestamp();
     
-    await logChannel.send({ embeds: [embed] });
+    await (logChannel as TextChannel).send({ embeds: [embed] });
     
     // If content logging is enabled, create a detailed log
     if (loggerConfig.logMessageContent) {
@@ -836,7 +772,7 @@ async function logBulkDeletion(
         
         if (msg.attachments && msg.attachments.size > 0) {
           logContent += `**Attachments:**\n`;
-          msg.attachments.forEach(attachment => {
+          msg.attachments.forEach((attachment) => {
             logContent += `- [${attachment.name || 'Attachment'}](${attachment.url})\n`;
           });
         }
@@ -846,13 +782,13 @@ async function logBulkDeletion(
       
       // If the log is too long, split it or send as a file
       if (logContent.length <= 2000) {
-        await logChannel.send({ content: logContent });
+        await (logChannel as TextChannel).send({ content: logContent });
       } else {
         // Create a buffer for the file
         const buffer = Buffer.from(logContent, 'utf8');
         const attachment = new AttachmentBuilder(buffer, { name: `bulk-deletion-${Date.now()}.txt` });
         
-        await logChannel.send({ 
+        await (logChannel as TextChannel).send({ 
           content: 'Detailed log of bulk deletion:',
           files: [attachment]
         });
