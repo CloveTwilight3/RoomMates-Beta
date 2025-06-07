@@ -11,7 +11,7 @@
 - - NSFW access toggle system
 - - Discord log forwarding
 - - Rotating status system
-- - Guild management (auto-leave unwanted servers)
+- - Dynamic description management
 - - Guild management (auto-leave unwanted servers)
 - 
 - @license MIT
@@ -140,9 +140,6 @@ const NSFW_NO_ACCESS_ROLE_ID = process.env.NSFW_NO_ACCESS_ROLE_ID;
 // Guild management configuration
 const GUILD_TO_KEEP = ‘1344865612559679529’; // The guild ID to keep the bot in
 
-// Guild management configuration
-const GUILD_TO_KEEP = ‘1344865612559679529’; // The guild ID to keep the bot in
-
 // Create a new client instance with ALL required intents
 const client = new Client({
 intents: [
@@ -163,91 +160,6 @@ GatewayIntentBits.DirectMessageReactions
 
 ]
 });
-
-//=============================================================================
-// GUILD MANAGEMENT SYSTEM
-//=============================================================================
-
-/**
-
-- Check and leave all guilds except the specified one
-  */
-  async function manageGuilds() {
-  try {
-  console.log(‘🔄 Checking guild membership…’);
-  
-  // Get all guilds the bot is in
-  const guilds = client.guilds.cache;
-  console.log(`Bot is currently in ${guilds.size} guild(s)`);
-  
-  if (guilds.size === 0) {
-  console.log(‘Bot is not in any guilds.’);
-  return;
-  }
-  
-  // List all guilds for reference
-  console.log(’\nCurrent guilds:’);
-  guilds.forEach(guild => {
-  console.log(`- ${guild.name} (ID: ${guild.id})`);
-  });
-  
-  // Check if the bot is in the target guild
-  const targetGuild = guilds.get(GUILD_TO_KEEP);
-  if (!targetGuild) {
-  console.log(`⚠️ Bot is not in the target guild (ID: ${GUILD_TO_KEEP})`);
-  console.log(‘Available guild IDs:’);
-  guilds.forEach(guild => console.log(`- ${guild.id} (${guild.name})`));
-  return;
-  }
-  
-  console.log(`✅ Target guild found: ${targetGuild.name} (${targetGuild.id})`);
-  
-  // Count guilds to leave
-  const guildsToLeave = guilds.filter(guild => guild.id !== GUILD_TO_KEEP);
-  
-  if (guildsToLeave.size === 0) {
-  console.log(‘✅ Bot is only in the target guild. No action needed.’);
-  return;
-  }
-  
-  console.log(`🚪 Leaving ${guildsToLeave.size} unwanted guild(s)...`);
-  
-  // Set temporary status while leaving guilds
-  setTemporaryStatus(client, ‘guild cleanup’, ActivityType.Custom, 30000, ‘🧹 Spring cleaning’);
-  
-  // Leave unwanted guilds
-  let leftCount = 0;
-  for (const [guildId, guild] of guildsToLeave) {
-  try {
-  await guild.leave();
-  console.log(`✅ Left: ${guild.name} (${guild.id})`);
-  leftCount++;
-  
-  ```
-   // Log to Discord
-   safeDiscordLog('info', `Left unwanted guild: ${guild.name}`, 'GuildManager');
-   
-   // Add delay to avoid rate limits
-   await new Promise(resolve => setTimeout(resolve, 1000));
-  ```
-  
-  } catch (error) {
-  console.error(`❌ Failed to leave ${guild.name}:`, error);
-  safeDiscordLog(‘error’, `Failed to leave guild ${guild.name}: ${error}`, ‘GuildManager’);
-  }
-  }
-  
-  if (leftCount > 0) {
-  console.log(`🎉 Successfully left ${leftCount} guild(s)`);
-  console.log(`✅ Remaining in: ${targetGuild.name}`);
-  safeDiscordLog(‘info’, `Guild cleanup complete: Left ${leftCount} guild(s), staying in ${targetGuild.name}`, ‘GuildManager’);
-  }
-
-} catch (error) {
-console.error(‘❌ Error in guild management:’, error);
-safeDiscordLog(‘error’, `Guild management error: ${error}`, ‘GuildManager’);
-}
-}
 
 //=============================================================================
 // GUILD MANAGEMENT SYSTEM
