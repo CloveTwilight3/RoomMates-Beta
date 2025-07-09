@@ -319,4 +319,296 @@ async function handlePauseCommand(
   }
 
   if (musicManager.pause(interaction.guild!.id)) {
-    await interaction
+    await interaction.reply('⏸️ Paused the current track!');
+ } else {
+   await interaction.reply({
+     content: '❌ Nothing to pause!',
+     flags: MessageFlags.Ephemeral
+   });
+ }
+}
+
+/**
+* Handle the resume command
+*/
+async function handleResumeCommand(
+ interaction: ChatInputCommandInteraction,
+ musicManager: MusicManager
+): Promise<void> {
+ const queue = musicManager.getQueue(interaction.guild!.id);
+ if (!queue) {
+   await interaction.reply({
+     content: '❌ No music is currently playing!',
+     flags: MessageFlags.Ephemeral
+   });
+   return;
+ }
+
+ if (musicManager.resume(interaction.guild!.id)) {
+   await interaction.reply('▶️ Resumed the current track!');
+ } else {
+   await interaction.reply({
+     content: '❌ Nothing to resume!',
+     flags: MessageFlags.Ephemeral
+   });
+ }
+}
+
+/**
+* Handle the queue command
+*/
+async function handleQueueCommand(
+ interaction: ChatInputCommandInteraction,
+ musicManager: MusicManager
+): Promise<void> {
+ const queueInfo = musicManager.getQueueInfo(interaction.guild!.id);
+ if (!queueInfo) {
+   await interaction.reply({
+     content: '❌ No music queue found!',
+     flags: MessageFlags.Ephemeral
+   });
+   return;
+ }
+
+ const embed = new EmbedBuilder()
+   .setTitle('🎵 Music Queue')
+   .setColor(0x00FF00)
+   .setTimestamp();
+
+ if (queueInfo.currentTrack) {
+   embed.addFields({
+     name: '🎵 Now Playing',
+     value: `**${queueInfo.currentTrack.title}**\nRequested by: ${queueInfo.currentTrack.requestedBy}`,
+     inline: false
+   });
+ }
+
+ if (queueInfo.tracks.length > 0) {
+   const queueList = queueInfo.tracks
+     .slice(0, 10) // Show only first 10 tracks
+     .map((track: any, index: number) => 
+       `${index + 1}. **${track.title}** - ${track.getFormattedDuration()}\n   Requested by: ${track.requestedBy}`
+     )
+     .join('\n\n');
+
+   embed.addFields({
+     name: `📝 Up Next (${queueInfo.tracks.length} track${queueInfo.tracks.length !== 1 ? 's' : ''})`,
+     value: queueList || 'Queue is empty',
+     inline: false
+   });
+
+   if (queueInfo.tracks.length > 10) {
+     embed.setFooter({ text: `And ${queueInfo.tracks.length - 10} more tracks...` });
+   }
+ } else {
+   embed.addFields({
+     name: '📝 Up Next',
+     value: 'Queue is empty',
+     inline: false
+   });
+ }
+
+ embed.addFields(
+   {
+     name: '🔊 Volume',
+     value: `${queueInfo.volume}%`,
+     inline: true
+   },
+   {
+     name: '▶️ Status',
+     value: queueInfo.isPlaying ? 'Playing' : queueInfo.isPaused ? 'Paused' : 'Idle',
+     inline: true
+   }
+ );
+
+ await interaction.reply({ embeds: [embed] });
+}
+
+/**
+* Handle the volume command
+*/
+async function handleVolumeCommand(
+ interaction: ChatInputCommandInteraction,
+ musicManager: MusicManager
+): Promise<void> {
+ const queue = musicManager.getQueue(interaction.guild!.id);
+ if (!queue) {
+   await interaction.reply({
+     content: '❌ No music is currently playing!',
+     flags: MessageFlags.Ephemeral
+   });
+   return;
+ }
+
+ const volume = interaction.options.getInteger('level', true);
+ 
+ if (musicManager.setVolume(interaction.guild!.id, volume)) {
+   await interaction.reply(`🔊 Volume set to ${volume}%!`);
+ } else {
+   await interaction.reply({
+     content: '❌ Failed to set volume!',
+     flags: MessageFlags.Ephemeral
+   });
+ }
+}
+
+/**
+* Handle the shuffle command
+*/
+async function handleShuffleCommand(
+ interaction: ChatInputCommandInteraction,
+ musicManager: MusicManager
+): Promise<void> {
+ const queue = musicManager.getQueue(interaction.guild!.id);
+ if (!queue) {
+   await interaction.reply({
+     content: '❌ No music queue found!',
+     flags: MessageFlags.Ephemeral
+   });
+   return;
+ }
+
+ if (musicManager.shuffle(interaction.guild!.id)) {
+   await interaction.reply('🔀 Queue has been shuffled!');
+ } else {
+   await interaction.reply({
+     content: '❌ Not enough tracks in queue to shuffle!',
+     flags: MessageFlags.Ephemeral
+   });
+ }
+}
+
+/**
+* Handle the leave command
+*/
+async function handleLeaveCommand(
+ interaction: ChatInputCommandInteraction,
+ musicManager: MusicManager
+): Promise<void> {
+ const queue = musicManager.getQueue(interaction.guild!.id);
+ if (!queue) {
+   await interaction.reply({
+     content: '❌ I\'m not currently in a voice channel!',
+     flags: MessageFlags.Ephemeral
+   });
+   return;
+ }
+
+ musicManager.destroyQueue(interaction.guild!.id);
+ await interaction.reply('👋 Left the voice channel and cleared the queue!');
+}
+
+/**
+* Handle the now playing command
+*/
+async function handleNowPlayingCommand(
+ interaction: ChatInputCommandInteraction,
+ musicManager: MusicManager
+): Promise<void> {
+ const queueInfo = musicManager.getQueueInfo(interaction.guild!.id);
+ if (!queueInfo || !queueInfo.currentTrack) {
+   await interaction.reply({
+     content: '❌ No music is currently playing!',
+     flags: MessageFlags.Ephemeral
+   });
+   return;
+ }
+
+ const track = queueInfo.currentTrack;
+ const embed = new EmbedBuilder()
+   .setTitle('🎵 Now Playing')
+   .setDescription(`**${track.title}**`)
+   .addFields(
+     {
+       name: 'Duration',
+       value: track.getFormattedDuration(),
+       inline: true
+     },
+     {
+       name: 'Requested By',
+       value: track.requestedBy.toString(),
+       inline: true
+     },
+     {
+       name: 'Volume',
+       value: `${queueInfo.volume}%`,
+       inline: true
+     },
+     {
+       name: 'Status',
+       value: queueInfo.isPlaying ? '▶️ Playing' : queueInfo.isPaused ? '⏸️ Paused' : '⏹️ Stopped',
+       inline: true
+     },
+     {
+       name: 'Queue',
+       value: `${queueInfo.tracks.length} track${queueInfo.tracks.length !== 1 ? 's' : ''} remaining`,
+       inline: true
+     }
+   )
+   .setColor(0x00FF00)
+   .setTimestamp();
+
+ if (track.thumbnail) {
+   embed.setThumbnail(track.thumbnail);
+ }
+
+ // Add control buttons
+ const row = new ActionRowBuilder<ButtonBuilder>()
+   .addComponents(
+     new ButtonBuilder()
+       .setCustomId('music_pause')
+       .setLabel(queueInfo.isPlaying ? 'Pause' : 'Resume')
+       .setStyle(ButtonStyle.Primary)
+       .setEmoji(queueInfo.isPlaying ? '⏸️' : '▶️'),
+     new ButtonBuilder()
+       .setCustomId('music_skip')
+       .setLabel('Skip')
+       .setStyle(ButtonStyle.Secondary)
+       .setEmoji('⏭️'),
+     new ButtonBuilder()
+       .setCustomId('music_stop')
+       .setLabel('Stop')
+       .setStyle(ButtonStyle.Danger)
+       .setEmoji('⏹️')
+   );
+
+ await interaction.reply({ embeds: [embed], components: [row] });
+}
+
+/**
+* Handle the remove command
+*/
+async function handleRemoveCommand(
+ interaction: ChatInputCommandInteraction,
+ musicManager: MusicManager
+): Promise<void> {
+ const queue = musicManager.getQueue(interaction.guild!.id);
+ if (!queue) {
+   await interaction.reply({
+     content: '❌ No music queue found!',
+     flags: MessageFlags.Ephemeral
+   });
+   return;
+ }
+
+ const position = interaction.options.getInteger('position', true);
+ const index = position - 1; // Convert to 0-based index
+
+ if (index < 0 || index >= queue.tracks.length) {
+   await interaction.reply({
+     content: '❌ Invalid queue position!',
+     flags: MessageFlags.Ephemeral
+   });
+   return;
+ }
+
+ const removedTrack = queue.removeTrack(index);
+ if (removedTrack) {
+   await interaction.reply(`🗑️ Removed **${removedTrack.title}** from the queue!`);
+ } else {
+   await interaction.reply({
+     content: '❌ Failed to remove track from queue!',
+     flags: MessageFlags.Ephemeral
+   });
+ }
+}
