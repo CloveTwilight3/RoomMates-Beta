@@ -1,6 +1,20 @@
 FROM node:20-alpine
 
-# Create app directory
+# Install build dependencies for native modules
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo-dev \
+    jpeg-dev \
+    pango-dev \
+    musl-dev \
+    giflib-dev \
+    pixman-dev \
+    pangomm-dev \
+    libjpeg-turbo-dev \
+    freetype-dev
+
 WORKDIR /usr/src/app
 
 # Copy package files
@@ -12,15 +26,15 @@ RUN npm install
 # Copy source code
 COPY . .
 
-# Build TypeScript
+# Build the application
 RUN npm run build
 
-# Set environment variables
-ENV NODE_ENV=production
+# Expose port (if needed)
+EXPOSE 3000
 
-# Add healthcheck
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD node dist/healthcheck.js || exit 1
+  CMD node dist/healthcheck.js
 
-# Run the bot using the compiled JavaScript
-CMD ["node", "dist/bot.js"]
+# Start the application
+CMD ["npm", "start"]
