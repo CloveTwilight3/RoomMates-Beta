@@ -12,6 +12,7 @@
  * - Rotating status system
  * - Dynamic description management
  * - Guild management (auto-leave unwanted servers)
+ * - Music Bot
  * 
  * @license MIT
  * @copyright 2025 Clove Twilight
@@ -114,6 +115,9 @@ import {
   setBotDescriptionUpdating
 } from './bot-description';
 
+import { MusicManger } from './music/music-manager';
+import { registerMusicCommands, handleMusicCommands} from './music/commands';
+
 //=============================================================================
 // BOT INITIALIZATION
 //=============================================================================
@@ -138,6 +142,9 @@ const NSFW_NO_ACCESS_ROLE_ID = process.env.NSFW_NO_ACCESS_ROLE_ID;
 
 // Guild management configuration
 const GUILD_TO_KEEP = '1344865612559679529'; // The guild ID to keep the bot in
+
+// Music
+const musicManager = new MusicManager(client)
 
 // Create a new client instance with ALL required intents
 const client = new Client({
@@ -591,6 +598,9 @@ async function registerCommands() {
   
   // Add moderation commands to the array
   registerModCommands(commands);
+
+  // Add Music Commands
+  registerMusicCommands(commands, musicManager);
 
   try {
     console.log('🔄 Started refreshing application (/) commands');
