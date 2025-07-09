@@ -32,7 +32,8 @@ import {
   entersState,
   AudioPlayer,
   VoiceConnection,
-  AudioResource
+  AudioResource,
+  StreamType
 } from '@discordjs/voice';
 
 import { createReadStream } from 'fs';
@@ -144,7 +145,36 @@ export class MusicManager {
   }
 
   /**
-   * Play a track from URL or search query
+   * Search for tracks using play-dl (FIXED VERSION)
+   */
+  private async searchTrack(query: string): Promise<any[] | null> {
+    try {
+      // Check if it's a YouTube URL first
+      const validation = play.yt_validate(query);
+      if (validation === 'video') {
+        const info = await play.video_info(query);
+        return [info.video_details];
+      } else if (validation === 'playlist') {
+        // Handle playlist URLs
+        const playlist = await play.playlist_info(query, { incomplete: true });
+        return playlist.videos || [];
+      }
+
+      // Search for tracks if it's not a URL
+      const searchResults = await play.search(query, {
+        source: { youtube: 'video' },
+        limit: 5 // Get more results to filter better
+      });
+
+      return searchResults;
+    } catch (error) {
+      console.error('Error searching for track:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Play a track from URL or search query (FIXED VERSION)
    */
   public async play(
     guild: Guild,
@@ -168,12 +198,40 @@ export class MusicManager {
       }
 
       const trackInfo = searchResults[0];
+      
+      // Fix: Better handling of track URL and info
+      let trackUrl = '';
+      let trackTitle = 'Unknown Title';
+      let trackDuration = 0;
+      let trackThumbnail = '';
+
+      // Handle different result formats
+      if (trackInfo.url) {
+        trackUrl = trackInfo.url;
+        trackTitle = trackInfo.title || trackInfo.name || 'Unknown Title';
+        trackDuration = trackInfo.durationInSec ? trackInfo.durationInSec * 1000 : 0;
+        trackThumbnail = trackInfo.thumbnails?.[0]?.url || '';
+      } else {
+        // For play-dl search results, the format might be different
+        trackUrl = trackInfo.url || `https://www.youtube.com/watch?v=${trackInfo.id}`;
+        trackTitle = trackInfo.title || trackInfo.name || 'Unknown Title';
+        trackDuration = trackInfo.durationInSec ? trackInfo.durationInSec * 1000 : (trackInfo.duration?.seconds_total * 1000) || 0;
+        trackThumbnail = trackInfo.thumbnails?.[0]?.url || trackInfo.thumbnail?.url || '';
+      }
+
+      // Validate URL before creating track
+      if (!trackUrl || trackUrl === 'undefined') {
+        console.error('Invalid track URL:', trackInfo);
+        await textChannel.send('❌ Could not get a valid URL for this track.');
+        return;
+      }
+
       const track = new Track(
-        trackInfo.title || 'Unknown Title',
-        trackInfo.url || '',
-        trackInfo.durationInSec ? trackInfo.durationInSec * 1000 : 0,
+        trackTitle,
+        trackUrl,
+        trackDuration,
         requestedBy,
-        trackInfo.thumbnails?.[0]?.url
+        trackThumbnail
       );
 
       // Add to queue
@@ -200,30 +258,6 @@ export class MusicManager {
     } catch (error) {
       console.error('Error playing track:', error);
       await textChannel.send('❌ An error occurred while trying to play the track.');
-    }
-  }
-
-  /**
-   * Search for tracks using play-dl
-   */
-  private async searchTrack(query: string): Promise<any[] | null> {
-    try {
-      // Check if it's a URL
-      if (play.yt_validate(query) === 'video') {
-        const info = await play.video_info(query);
-        return [info.video_details];
-      }
-
-      // Search for tracks
-      const searchResults = await play.search(query, {
-        source: { youtube: 'video' },
-        limit: 1
-      });
-
-      return searchResults;
-    } catch (error) {
-      console.error('Error searching for track:', error);
-      return null;
     }
   }
 
