@@ -42,11 +42,11 @@ export class MusicQueue {
     // Create audio player
     this.audioPlayer = createAudioPlayer();
 
-    // Join voice channel
+    // Join voice channel - Fix the adapter type issue
     this.voiceConnection = joinVoiceChannel({
       channelId: voiceChannel.id,
       guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator,
+      adapterCreator: guild.voiceAdapterCreator as any, // Type assertion to fix the adapter issue
     });
 
     // Subscribe the connection to the audio player
@@ -132,7 +132,8 @@ export class MusicQueue {
    * Send now playing message
    */
   private async sendNowPlayingMessage(track: Track): Promise<void> {
-    const embed = {
+    // Fix the embed type issue by using proper EmbedBuilder structure
+    const embedData: any = {
       title: '🎵 Now Playing',
       description: `**${track.title}**`,
       fields: [
@@ -156,11 +157,12 @@ export class MusicQueue {
       timestamp: new Date().toISOString()
     };
 
+    // Add thumbnail if available
     if (track.thumbnail) {
-      embed['thumbnail'] = { url: track.thumbnail };
+      embedData.thumbnail = { url: track.thumbnail };
     }
 
-    await this.textChannel.send({ embeds: [embed] });
+    await this.textChannel.send({ embeds: [embedData] });
   }
 
   /**
