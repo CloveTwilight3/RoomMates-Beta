@@ -1,5 +1,5 @@
 /**
- * Music Queue - Manages music queue for a guild
+ * Music Queue - Manages music queue for a guild (FIXED VERSION)
  * ---------------------------------------------
  * Handles queue operations and playback for individual guilds
  */
@@ -8,7 +8,8 @@ import {
   Guild,
   TextChannel,
   VoiceChannel,
-  GuildMember
+  GuildMember,
+  EmbedBuilder
 } from 'discord.js';
 
 import {
@@ -17,7 +18,8 @@ import {
   createAudioResource,
   AudioPlayer,
   VoiceConnection,
-  AudioPlayerStatus
+  AudioPlayerStatus,
+  StreamType
 } from '@discordjs/voice';
 
 import * as play from 'play-dl';
@@ -96,14 +98,19 @@ export class MusicQueue {
   }
 
   /**
-   * Play a specific track
+   * Play a specific track (FIXED VERSION)
    */
   private async playTrack(track: Track): Promise<void> {
     try {
-      // Get audio stream
+      console.log(`🎵 Attempting to play: ${track.title}`);
+      console.log(`🔗 URL: ${track.url}`);
+
+      // Get audio stream using play-dl
       const stream = await play.stream(track.url, {
         quality: 2 // High quality
       });
+
+      console.log(`🎧 Stream type: ${stream.type}`);
 
       const resource = createAudioResource(stream.stream, {
         inputType: stream.type,
@@ -118,51 +125,55 @@ export class MusicQueue {
       // Play the resource
       this.audioPlayer.play(resource);
 
+      console.log(`🎵 Successfully started playing: ${track.title}`);
+
       // Send now playing message
       await this.sendNowPlayingMessage(track);
 
     } catch (error) {
-      console.error('Error playing track:', error);
+      console.error(`❌ Error playing track "${track.title}":`, error);
       await this.textChannel.send(`❌ Error playing **${track.title}**. Skipping to next track...`);
       this.processQueue();
     }
   }
 
   /**
-   * Send now playing message
+   * Send now playing message (FIXED VERSION)
    */
   private async sendNowPlayingMessage(track: Track): Promise<void> {
-    // Fix the embed type issue by using proper EmbedBuilder structure
-    const embedData: any = {
-      title: '🎵 Now Playing',
-      description: `**${track.title}**`,
-      fields: [
-        {
-          name: 'Duration',
-          value: this.formatDuration(track.duration),
-          inline: true
-        },
-        {
-          name: 'Requested By',
-          value: track.requestedBy.toString(),
-          inline: true
-        },
-        {
-          name: 'Queue Position',
-          value: `${this.tracks.length} track(s) remaining`,
-          inline: true
-        }
-      ],
-      color: 0x00FF00,
-      timestamp: new Date().toISOString()
-    };
+    try {
+      const embed = new EmbedBuilder()
+        .setTitle('🎵 Now Playing')
+        .setDescription(`**${track.title}**`)
+        .addFields([
+          {
+            name: 'Duration',
+            value: this.formatDuration(track.duration),
+            inline: true
+          },
+          {
+            name: 'Requested By',
+            value: track.requestedBy.toString(),
+            inline: true
+          },
+          {
+            name: 'Queue Position',
+            value: `${this.tracks.length} track(s) remaining`,
+            inline: true
+          }
+        ])
+        .setColor(0x00FF00)
+        .setTimestamp();
 
-    // Add thumbnail if available
-    if (track.thumbnail) {
-      embedData.thumbnail = { url: track.thumbnail };
+      // Add thumbnail if available
+      if (track.thumbnail) {
+        embed.setThumbnail(track.thumbnail);
+      }
+
+      await this.textChannel.send({ embeds: [embed] });
+    } catch (error) {
+      console.error('Error sending now playing message:', error);
     }
-
-    await this.textChannel.send({ embeds: [embedData] });
   }
 
   /**
