@@ -115,8 +115,9 @@ import {
   setBotDescriptionUpdating
 } from './bot-description';
 
-import { MusicManger } from './music/music-manager';
-import { registerMusicCommands, handleMusicCommands} from './music/commands';
+// Import music system
+import { MusicManager } from './music/music-manager';
+import { registerMusicCommands, handleMusicCommand } from './music/commands';
 
 //=============================================================================
 // BOT INITIALIZATION
@@ -143,9 +144,6 @@ const NSFW_NO_ACCESS_ROLE_ID = process.env.NSFW_NO_ACCESS_ROLE_ID;
 // Guild management configuration
 const GUILD_TO_KEEP = '1344865612559679529'; // The guild ID to keep the bot in
 
-// Music
-const musicManager = new MusicManager(client)
-
 // Create a new client instance with ALL required intents
 const client = new Client({
   intents: [
@@ -160,9 +158,15 @@ const client = new Client({
     
     // DM intents
     GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.DirectMessageReactions
+    GatewayIntentBits.DirectMessageReactions,
+    
+    // Voice intents - REQUIRED for music
+    GatewayIntentBits.GuildVoiceStates
   ]
 });
+
+// Initialize music manager AFTER client creation
+const musicManager = new MusicManager(client);
 
 //=============================================================================
 // GUILD MANAGEMENT SYSTEM
@@ -802,234 +806,234 @@ async function handleColorSelectCommand(interaction: ChatInputCommandInteraction
       try {
         // Check if the message still exists and can be edited
         await interaction.editReply({
-          content: 'Color selection timed out. Please use the command again if you still want to select a color.',
-          components: []
-        });
-      } catch (error) {
-        console.error('Error updating message after timeout:', error);
-      }
-    }
-  });
+          content: 'Color selection timed out. Please use the command again if you still want toselect a color.',
+         components: []
+       });
+     } catch (error) {
+       console.error('Error updating message after timeout:', error);
+     }
+   }
+ });
 }
 
 /**
- * Show colors for a specific category
- */
+* Show colors for a specific category
+*/
 async function showColorsForCategory(interaction: any, category: string) {
-  try {
-    if (!colorCategories[category] || colorCategories[category].length === 0) {
-      await interaction.update({
-        content: 'No colors available in this category. Please try another one.',
-        components: []
-      }).catch((error: any) => {
-        console.error('Error updating interaction with no colors message:', error);
-      });
-      return;
-    }
+ try {
+   if (!colorCategories[category] || colorCategories[category].length === 0) {
+     await interaction.update({
+       content: 'No colors available in this category. Please try another one.',
+       components: []
+     }).catch((error: any) => {
+       console.error('Error updating interaction with no colors message:', error);
+     });
+     return;
+   }
 
-    // Get colors from this category
-    const colors = colorCategories[category];
-    
-    // Discord has a 25-option limit for select menus
-    const maxOptionsPerMenu = 25;
-    
-    // If we have more than 25 colors, we'll need to handle it
-    if (colors.length > maxOptionsPerMenu) {
-      // For simplicity, just take the first 25 for now
-      // In a production bot, you'd implement pagination here
-      const colorsToShow = colors.slice(0, maxOptionsPerMenu);
-      
-      const colorSelect = new StringSelectMenuBuilder()
-        .setCustomId('color_select')
-        .setPlaceholder(`Choose a color from ${category}`)
-        .addOptions(
-          colorsToShow.map(color => 
-            new StringSelectMenuOptionBuilder()
-              .setLabel(color.name)
-              .setValue(color.id)
-          )
-        );
+   // Get colors from this category
+   const colors = colorCategories[category];
+   
+   // Discord has a 25-option limit for select menus
+   const maxOptionsPerMenu = 25;
+   
+   // If we have more than 25 colors, we'll need to handle it
+   if (colors.length > maxOptionsPerMenu) {
+     // For simplicity, just take the first 25 for now
+     // In a production bot, you'd implement pagination here
+     const colorsToShow = colors.slice(0, maxOptionsPerMenu);
+     
+     const colorSelect = new StringSelectMenuBuilder()
+       .setCustomId('color_select')
+       .setPlaceholder(`Choose a color from ${category}`)
+       .addOptions(
+         colorsToShow.map(color => 
+           new StringSelectMenuOptionBuilder()
+             .setLabel(color.name)
+             .setValue(color.id)
+         )
+       );
 
-      const row = new ActionRowBuilder<StringSelectMenuBuilder>()
-        .addComponents(colorSelect);
+     const row = new ActionRowBuilder<StringSelectMenuBuilder>()
+       .addComponents(colorSelect);
 
-      await interaction.update({
-        content: `Select a color from ${category} (showing first ${maxOptionsPerMenu} of ${colors.length}):`,
-        components: [row]
-      }).catch((error: any) => {
-        console.error('Error updating interaction with color options:', error);
-      });
-    } else {
-      const colorSelect = new StringSelectMenuBuilder()
-        .setCustomId('color_select')
-        .setPlaceholder(`Choose a color from ${category}`)
-        .addOptions(
-          colors.map(color => 
-            new StringSelectMenuOptionBuilder()
-              .setLabel(color.name)
-              .setValue(color.id)
-          )
-        );
+     await interaction.update({
+       content: `Select a color from ${category} (showing first ${maxOptionsPerMenu} of ${colors.length}):`,
+       components: [row]
+     }).catch((error: any) => {
+       console.error('Error updating interaction with color options:', error);
+     });
+   } else {
+     const colorSelect = new StringSelectMenuBuilder()
+       .setCustomId('color_select')
+       .setPlaceholder(`Choose a color from ${category}`)
+       .addOptions(
+         colors.map(color => 
+           new StringSelectMenuOptionBuilder()
+             .setLabel(color.name)
+             .setValue(color.id)
+         )
+       );
 
-      const row = new ActionRowBuilder<StringSelectMenuBuilder>()
-        .addComponents(colorSelect);
+     const row = new ActionRowBuilder<StringSelectMenuBuilder>()
+       .addComponents(colorSelect);
 
-      await interaction.update({
-        content: `Select a color from ${category}:`,
-        components: [row]
-      }).catch((error: any) => {
-        console.error('Error updating interaction with color options:', error);
-        
-        // If the error is an Unknown Interaction error, the interaction has expired
-        if (error instanceof DiscordAPIError && error.code === 10062) {
-          console.log('Interaction has expired. The user will need to run the command again.');
-        }
-      });
-    }
-  } catch (error) {
-    console.error('Error in showColorsForCategory:', error);
-  }
+     await interaction.update({
+       content: `Select a color from ${category}:`,
+       components: [row]
+     }).catch((error: any) => {
+       console.error('Error updating interaction with color options:', error);
+       
+       // If the error is an Unknown Interaction error, the interaction has expired
+       if (error instanceof DiscordAPIError && error.code === 10062) {
+         console.log('Interaction has expired. The user will need to run the command again.');
+       }
+     });
+   }
+ } catch (error) {
+   console.error('Error in showColorsForCategory:', error);
+ }
 }
 
 /**
- * Assign the selected color role
- */
+* Assign the selected color role
+*/
 async function assignColorRole(interaction: any, roleId: string) {
-  try {
-    if (!interaction.guild) {
-      await interaction.update({
-        content: 'This command can only be used in a server!',
-        components: []
-      }).catch((error: any) => {
-        console.error('Error updating interaction with guild error message:', error);
-      });
-      return;
-    }
+ try {
+   if (!interaction.guild) {
+     await interaction.update({
+       content: 'This command can only be used in a server!',
+       components: []
+     }).catch((error: any) => {
+       console.error('Error updating interaction with guild error message:', error);
+     });
+     return;
+   }
 
-    const member = interaction.guild.members.cache.get(interaction.user.id);
-    if (!member) {
-      await interaction.update({
-        content: 'Could not find you in this server!',
-        components: []
-      }).catch((error: any) => {
-        console.error('Error updating interaction with member error message:', error);
-      });
-      return;
-    }
+   const member = interaction.guild.members.cache.get(interaction.user.id);
+   if (!member) {
+     await interaction.update({
+       content: 'Could not find you in this server!',
+       components: []
+     }).catch((error: any) => {
+       console.error('Error updating interaction with member error message:', error);
+     });
+     return;
+   }
 
-    // Find the role
-    const role = interaction.guild.roles.cache.get(roleId);
-    if (!role) {
-      await interaction.update({
-        content: 'Error: Color role not found. Please try again or contact an admin.',
-        components: []
-      }).catch((error: any) => {
-        console.error('Error updating interaction with role error message:', error);
-      });
-      return;
-    }
+   // Find the role
+   const role = interaction.guild.roles.cache.get(roleId);
+   if (!role) {
+     await interaction.update({
+       content: 'Error: Color role not found. Please try again or contact an admin.',
+       components: []
+     }).catch((error: any) => {
+       console.error('Error updating interaction with role error message:', error);
+     });
+     return;
+   }
 
-    try {
-      // Remove any existing color roles
-      await removeExistingColorRoles(member);
-      
-      // Assign the new role
-      await member.roles.add(role);
-      
-      // Log the color change
-      safeDiscordLog('info', `User ${interaction.user.tag} changed color to ${role.name}`, 'ColorRoles');
-      
-      // Set temporary status for color change
-      setTemporaryStatus(client, 'with colors', ActivityType.Playing, 8000);
-      
-      // Create an embed to show the result
-      const embed = new EmbedBuilder()
-        .setTitle('Color Changed!')
-        .setDescription(`You now have the ${role.name} color!`)
-        .setColor(role.color);
-      
-      await interaction.update({
-        content: '',
-        embeds: [embed],
-        components: []
-      }).catch((error: any) => {
-        console.error('Error updating interaction with success message:', error);
-        
-        // If it's an Unknown Interaction error, just log it
-        if (error instanceof DiscordAPIError && error.code === 10062) {
-          console.log('Interaction has expired, but the role was still assigned successfully.');
-        }
-      });
-    } catch (error) {
-      console.error('Error assigning color role:', error);
-      
-      // Try to update the interaction with an error message
-      try {
-        await interaction.update({
-          content: 'There was an error assigning the color role. Please try again later.',
-          components: []
-        });
-      } catch (updateError) {
-        console.error('Error sending error message:', updateError);
-      }
-    }
-  } catch (error) {
-    console.error('Error in assignColorRole:', error);
-  }
+   try {
+     // Remove any existing color roles
+     await removeExistingColorRoles(member);
+     
+     // Assign the new role
+     await member.roles.add(role);
+     
+     // Log the color change
+     safeDiscordLog('info', `User ${interaction.user.tag} changed color to ${role.name}`, 'ColorRoles');
+     
+     // Set temporary status for color change
+     setTemporaryStatus(client, 'with colors', ActivityType.Playing, 8000);
+     
+     // Create an embed to show the result
+     const embed = new EmbedBuilder()
+       .setTitle('Color Changed!')
+       .setDescription(`You now have the ${role.name} color!`)
+       .setColor(role.color);
+     
+     await interaction.update({
+       content: '',
+       embeds: [embed],
+       components: []
+     }).catch((error: any) => {
+       console.error('Error updating interaction with success message:', error);
+       
+       // If it's an Unknown Interaction error, just log it
+       if (error instanceof DiscordAPIError && error.code === 10062) {
+         console.log('Interaction has expired, but the role was still assigned successfully.');
+       }
+     });
+   } catch (error) {
+     console.error('Error assigning color role:', error);
+     
+     // Try to update the interaction with an error message
+     try {
+       await interaction.update({
+         content: 'There was an error assigning the color role. Please try again later.',
+         components: []
+       });
+     } catch (updateError) {
+       console.error('Error sending error message:', updateError);
+     }
+   }
+ } catch (error) {
+   console.error('Error in assignColorRole:', error);
+ }
 }
 
 /**
- * Handle the color remove subcommand
- */
+* Handle the color remove subcommand
+*/
 async function handleColorRemoveCommand(interaction: ChatInputCommandInteraction, member: any) {
-  try {
-    const removed = await removeExistingColorRoles(member);
-    
-    if (removed) {
-      safeDiscordLog('info', `User ${interaction.user.tag} removed their color role`, 'ColorRoles');
-      
-      // Set temporary status for color removal
-      setTemporaryStatus(client, 'color removal', ActivityType.Custom, 8000, '🗑️ Color deleted');
-      
-      await interaction.reply({ 
-        content: 'Your color role has been removed!', 
-        flags: MessageFlags.Ephemeral
-      });
-    } else {
-      await interaction.reply({ 
-        content: 'You don\'t have any color roles to remove.', 
-        flags: MessageFlags.Ephemeral 
-      });
-    }
-  } catch (error) {
-    console.error('Error removing color roles:', error);
-    await interaction.reply({ 
-      content: 'There was an error removing your color roles. Please try again later.', 
-      flags: MessageFlags.Ephemeral 
-    });
-  }
+ try {
+   const removed = await removeExistingColorRoles(member);
+   
+   if (removed) {
+     safeDiscordLog('info', `User ${interaction.user.tag} removed their color role`, 'ColorRoles');
+     
+     // Set temporary status for color removal
+     setTemporaryStatus(client, 'color removal', ActivityType.Custom, 8000, '🗑️ Color deleted');
+     
+     await interaction.reply({ 
+       content: 'Your color role has been removed!', 
+       flags: MessageFlags.Ephemeral
+     });
+   } else {
+     await interaction.reply({ 
+       content: 'You don\'t have any color roles to remove.', 
+       flags: MessageFlags.Ephemeral 
+     });
+   }
+ } catch (error) {
+   console.error('Error removing color roles:', error);
+   await interaction.reply({ 
+     content: 'There was an error removing your color roles. Please try again later.', 
+     flags: MessageFlags.Ephemeral 
+   });
+ }
 }
 
 /**
- * Helper function to remove existing color roles
- */
+* Helper function to remove existing color roles
+*/
 async function removeExistingColorRoles(member: any) {
-  // Get all color role IDs
-  const colorRoleIds = new Set<string>();
-  colorRoles.forEach(role => {
-    colorRoleIds.add(role.id);
-  });
-  
-  // Filter member's roles to find color roles
-  const colorRolesToRemove = member.roles.cache.filter((role: Role) => colorRoleIds.has(role.id));
-  
-  if (colorRolesToRemove.size === 0) {
-    return false;
-  }
-  
-  // Remove the color roles
-  await member.roles.remove(colorRolesToRemove);
-  return true;
+ // Get all color role IDs
+ const colorRoleIds = new Set<string>();
+ colorRoles.forEach(role => {
+   colorRoleIds.add(role.id);
+ });
+ 
+ // Filter member's roles to find color roles
+ const colorRolesToRemove = member.roles.cache.filter((role: Role) => colorRoleIds.has(role.id));
+ 
+ if (colorRolesToRemove.size === 0) {
+   return false;
+ }
+ 
+ // Remove the color roles
+ await member.roles.remove(colorRolesToRemove);
+ return true;
 }
 
 //=============================================================================
@@ -1037,169 +1041,169 @@ async function removeExistingColorRoles(member: any) {
 //=============================================================================
 
 /**
- * Bot ready event handler
- */
+* Bot ready event handler
+*/
 client.once(Events.ClientReady, async () => {
-  // Initialize Discord logger first
-  discordLogger.initialize(client);
-  
-  console.log(`🚀 ${BOT_NAME} is online and ready to serve ${SERVER_NAME}!`);
-  
-  // Perform guild management check first
-  await manageGuilds();
-  
-  // Set up bot description
-  await setupBotDescription(client);
-  
-  // Set up rotating status system
-  setupRotatingStatus(client);
-  
-  // Load color roles and register commands
-  loadColorRolesFromFile();
-  await registerCommands();
-  
-  // Set up all systems
-  setupVerificationSystem(client);
-  loadVerificationConfig();
-  setupMessageLogger(client);
-  setupWelcomeDM(client);
-  setupWarningSystem(client);
-  await testLoggerChannel(client);
-  
-  // Update health status when bot is ready
-  writeHealthStatus('online', startTime);
-  
-  // Set up a heartbeat interval
-  setInterval(() => {
-    writeHealthStatus('online', startTime);
-  }, 60 * 1000); // Every minute
-  
-  // Log command IDs after everything is set up
-  setTimeout(async () => {
-    await logCommandIds(client);
-  }, 3000); // Wait 3 seconds to ensure commands are fully registered
-  
-  // Send startup notification to Discord
-  setTimeout(async () => {
-    await discordLogger.sendStartupMessage();
-    // Set a temporary "just started" status for 2 minutes
-    setTemporaryStatus(client, 'just booted up!', ActivityType.Custom, 120000, '🚀 Fresh and ready');
-  }, 5000); // Wait 5 seconds for everything to be ready
+ // Initialize Discord logger first
+ discordLogger.initialize(client);
+ 
+ console.log(`🚀 ${BOT_NAME} is online and ready to serve ${SERVER_NAME}!`);
+ 
+ // Perform guild management check first
+ await manageGuilds();
+ 
+ // Set up bot description
+ await setupBotDescription(client);
+ 
+ // Set up rotating status system
+ setupRotatingStatus(client);
+ 
+ // Load color roles and register commands
+ loadColorRolesFromFile();
+ await registerCommands();
+ 
+ // Set up all systems
+ setupVerificationSystem(client);
+ loadVerificationConfig();
+ setupMessageLogger(client);
+ setupWelcomeDM(client);
+ setupWarningSystem(client);
+ await testLoggerChannel(client);
+ 
+ // Update health status when bot is ready
+ writeHealthStatus('online', startTime);
+ 
+ // Set up a heartbeat interval
+ setInterval(() => {
+   writeHealthStatus('online', startTime);
+ }, 60 * 1000); // Every minute
+ 
+ // Log command IDs after everything is set up
+ setTimeout(async () => {
+   await logCommandIds(client);
+ }, 3000); // Wait 3 seconds to ensure commands are fully registered
+ 
+ // Send startup notification to Discord
+ setTimeout(async () => {
+   await discordLogger.sendStartupMessage();
+   // Set a temporary "just started" status for 2 minutes
+   setTemporaryStatus(client, 'just booted up!', ActivityType.Custom, 120000, '🚀 Fresh and ready');
+ }, 5000); // Wait 5 seconds for everything to be ready
 });
 
 /**
- * Error event handler
- */
+* Error event handler
+*/
 client.on('error', (error) => {
-  console.error('❌ Discord client error:', error);
-  writeHealthStatus('offline', startTime);
+ console.error('❌ Discord client error:', error);
+ writeHealthStatus('offline', startTime);
 });
 
 /**
- * Member join event handler
- */
+* Member join event handler
+*/
 client.on(Events.GuildMemberAdd, async (member: GuildMember) => {
-  try {
-    console.log(`✅ New member joined: ${member.user.tag}`);
-    
-    // Set temporary status for new member
-    setTemporaryStatus(client, 'new roommate arriving', ActivityType.Custom, 15000, '👋 Welcome wagon');
-    
-    // Send welcome DM to the new member
-    await sendWelcomeDM(member);
-    
-    // Get the unverified role ID (either from env or config)
-    const unverifiedRoleId = getAgeUnverifiedRoleId();
-    
-    // Array to store roles to assign
-    const rolesToAssign: string[] = [];
-    
-    // Add Age Unverified role if configured
-    if (unverifiedRoleId) {
-      const ageUnverifiedRole = member.guild.roles.cache.get(unverifiedRoleId);
-      if (ageUnverifiedRole) {
-        rolesToAssign.push(unverifiedRoleId);
-      } else {
-        console.error(`Age Unverified role with ID ${unverifiedRoleId} not found in server.`);
-      }
-    } else {
-      console.warn('No Age Unverified role ID configured. Skipping age unverified role assignment for new member.');
-    }
-    
-    // Add NSFW No Access role if configured
-    if (NSFW_NO_ACCESS_ROLE_ID) {
-      const nsfwNoAccessRole = member.guild.roles.cache.get(NSFW_NO_ACCESS_ROLE_ID);
-      if (nsfwNoAccessRole) {
-        rolesToAssign.push(NSFW_NO_ACCESS_ROLE_ID);
-      } else {
-        console.error(`NSFW No Access role with ID ${NSFW_NO_ACCESS_ROLE_ID} not found in server.`);
-      }
-    } else {
-      console.warn('No NSFW No Access role ID configured. Skipping NSFW no access role assignment for new member.');
-    }
-    
-    // Assign all roles at once if any are configured
-    if (rolesToAssign.length > 0) {
-      await member.roles.add(rolesToAssign);
-      console.log(`✅ Assigned ${rolesToAssign.length} role(s) to new member: ${member.user.tag}`);
-    }
-  } catch (error) {
-    console.error('❌ Error processing new member:', error);
-  }
+ try {
+   console.log(`✅ New member joined: ${member.user.tag}`);
+   
+   // Set temporary status for new member
+   setTemporaryStatus(client, 'new roommate arriving', ActivityType.Custom, 15000, '👋 Welcome wagon');
+   
+   // Send welcome DM to the new member
+   await sendWelcomeDM(member);
+   
+   // Get the unverified role ID (either from env or config)
+   const unverifiedRoleId = getAgeUnverifiedRoleId();
+   
+   // Array to store roles to assign
+   const rolesToAssign: string[] = [];
+   
+   // Add Age Unverified role if configured
+   if (unverifiedRoleId) {
+     const ageUnverifiedRole = member.guild.roles.cache.get(unverifiedRoleId);
+     if (ageUnverifiedRole) {
+       rolesToAssign.push(unverifiedRoleId);
+     } else {
+       console.error(`Age Unverified role with ID ${unverifiedRoleId} not found in server.`);
+     }
+   } else {
+     console.warn('No Age Unverified role ID configured. Skipping age unverified role assignment for new member.');
+   }
+   
+   // Add NSFW No Access role if configured
+   if (NSFW_NO_ACCESS_ROLE_ID) {
+     const nsfwNoAccessRole = member.guild.roles.cache.get(NSFW_NO_ACCESS_ROLE_ID);
+     if (nsfwNoAccessRole) {
+       rolesToAssign.push(NSFW_NO_ACCESS_ROLE_ID);
+     } else {
+       console.error(`NSFW No Access role with ID ${NSFW_NO_ACCESS_ROLE_ID} not found in server.`);
+     }
+   } else {
+     console.warn('No NSFW No Access role ID configured. Skipping NSFW no access role assignment for new member.');
+   }
+   
+   // Assign all roles at once if any are configured
+   if (rolesToAssign.length > 0) {
+     await member.roles.add(rolesToAssign);
+     console.log(`✅ Assigned ${rolesToAssign.length} role(s) to new member: ${member.user.tag}`);
+   }
+ } catch (error) {
+   console.error('❌ Error processing new member:', error);
+ }
 });
 
 /**
- * Message create event handler for message debugging
- */
+* Message create event handler for message debugging
+*/
 client.on(Events.MessageCreate, (message) => {
-  // Ignore bot messages to prevent loops
-  if (message.author.bot) return;
-  
-  // Only log in debug mode or for specific conditions
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`MESSAGE RECEIVED: ID=${message.id}, Author=${message.author.tag}, Content=${message.content}`);
-  }
+ // Ignore bot messages to prevent loops
+ if (message.author.bot) return;
+ 
+ // Only log in debug mode or for specific conditions
+ if (process.env.NODE_ENV === 'development') {
+   console.log(`MESSAGE RECEIVED: ID=${message.id}, Author=${message.author.tag}, Content=${message.content}`);
+ }
 });
 
 /**
- * Message update event handler for debugging
- */
+* Message update event handler for debugging
+*/
 client.on(Events.MessageUpdate, (oldMessage, newMessage) => {
-  // Ignore bot messages to prevent loops
-  if (newMessage.author?.bot) return;
-  
-  // Only log in debug mode
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`MESSAGE UPDATED: ID=${newMessage.id}, Author=${newMessage.author?.tag}`);
-    console.log(`Old content: ${oldMessage.content}`);
-    console.log(`New content: ${newMessage.content}`);
-  }
+ // Ignore bot messages to prevent loops
+ if (newMessage.author?.bot) return;
+ 
+ // Only log in debug mode
+ if (process.env.NODE_ENV === 'development') {
+   console.log(`MESSAGE UPDATED: ID=${newMessage.id}, Author=${newMessage.author?.tag}`);
+   console.log(`Old content: ${oldMessage.content}`);
+   console.log(`New content: ${newMessage.content}`);
+ }
 });
 
 /**
- * Message delete event handler for debugging
- */
+* Message delete event handler for debugging
+*/
 client.on(Events.MessageDelete, (message) => {
-  // Ignore bot messages to prevent loops
-  if (message.author?.bot) return;
-  
-  // Only log in debug mode
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`MESSAGE DELETED: ID=${message.id}, Author=${message.author?.tag}`);
-  }
+ // Ignore bot messages to prevent loops
+ if (message.author?.bot) return;
+ 
+ // Only log in debug mode
+ if (process.env.NODE_ENV === 'development') {
+   console.log(`MESSAGE DELETED: ID=${message.id}, Author=${message.author?.tag}`);
+ }
 });
 
 /**
- * Interaction create event handler
- */
+* Interaction create event handler
+*/
 client.on(Events.InteractionCreate, async interaction => {
-  if (interaction.isChatInputCommand()) {
-    handleCommandInteraction(interaction);
-  } else if (interaction.isButton()) {
-    handleButtonInteraction(interaction);
-  } else if (interaction.isModalSubmit()) {
-    handleModalInteraction(interaction);
-  }
+ if (interaction.isChatInputCommand()) {
+   handleCommandInteraction(interaction);
+ } else if (interaction.isButton()) {
+   handleButtonInteraction(interaction);
+ } else if (interaction.isModalSubmit()) {
+   handleModalInteraction(interaction);
+ }
 });
 
 //=============================================================================
@@ -1207,192 +1211,245 @@ client.on(Events.InteractionCreate, async interaction => {
 //=============================================================================
 
 /**
- * Handle command interactions
- */
+* Handle command interactions
+*/
 async function handleCommandInteraction(interaction: ChatInputCommandInteraction) {
-  if (!interaction.guild) {
-    await interaction.reply({ content: 'This command can only be used in a server!', flags: MessageFlags.Ephemeral });
-    return;
-  }
+ if (!interaction.guild) {
+   await interaction.reply({ content: 'This command can only be used in a server!', flags: MessageFlags.Ephemeral });
+   return;
+ }
 
-  const { commandName } = interaction;
+ const { commandName } = interaction;
 
-  // Log command usage (but not to Discord to avoid spam)
-  console.log(`🔍 Command used: /${commandName} by ${interaction.user.tag}`);
+ // Log command usage (but not to Discord to avoid spam)
+ console.log(`🔍 Command used: /${commandName} by ${interaction.user.tag}`);
 
-  // Handle warning system commands
-  if (['warn', 'warnings', 'clearwarnings', 'mute', 'unmute',
-       'ban', 'unban', 'kick', 'note', 'modconfig', 'appeal',
-       'check', 'echo'].includes(commandName)) {
-    await handleModCommand(interaction);
-    // Set temporary status for moderation actions
-    if (['warn', 'mute', 'ban', 'kick'].includes(commandName)) {
-      setTemporaryStatus(client, 'moderation duties', ActivityType.Custom, 12000, '⚖️ Justice served');
-    }
-    return;
-  }
+ // Handle music commands FIRST
+ const musicCommands = [
+   'play', 'skip', 'stop', 'pause', 'resume', 'queue',
+   'volume', 'shuffle', 'leave', 'nowplaying', 'remove'
+ ];
 
-  // Get the member from the interaction
-  const member = interaction.guild.members.cache.get(interaction.user.id);
-  if (!member) {
-    await interaction.reply({ content: 'Could not find you in this server!', flags: MessageFlags.Ephemeral });
-    return;
-  }
+ if (musicCommands.includes(commandName)) {
+   await handleMusicCommand(interaction, musicManager);
+   // Set temporary status for music actions
+   setTemporaryStatus(client, 'playing music', ActivityType.Custom, 8000, '🎵 DJ mode');
+   return;
+ }
 
-  try {
-    switch (commandName) {
-      case 'color':
-        const subcommand = interaction.options.getSubcommand();
-        
-        switch (subcommand) {
-          case 'select':
-            await handleColorSelectCommand(interaction);
-            break;
-          case 'remove':
-            await handleColorRemoveCommand(interaction, member);
-            break;
-        }
-        break;
-      
-      case 'nsfw':
-        await handleNSFWCommand(interaction);
-        break;
-      
-      case 'verify':
-        await handleVerifyCommand(interaction);
-        // Set temporary status for verification
-        setTemporaryStatus(client, 'age verification', ActivityType.Custom, 10000, '✅ Checking ID');
-        break;
-      
-      case 'modverify':
-        await handleModVerifyCommand(interaction);
-        break;
-        
-      case 'logger':
-        await handleLoggerCommand(interaction);
-        break;
-        
-      default:
-        await interaction.reply({ 
-          content: 'Unknown command. Please use a valid command.', 
-          flags: MessageFlags.Ephemeral
-        });
-    }
-  } catch (error) {
-    console.error(`❌ Error handling command ${commandName}:`, error);
-    
-    // Only reply if the interaction hasn't been responded to yet
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ 
-        content: 'There was an error executing this command. Please try again later.', 
-        ephemeral: true 
-      }).catch((err) => console.error('Error sending error message:', err));
-    }
-  }
+ // Handle warning system commands
+ if (['warn', 'warnings', 'clearwarnings', 'mute', 'unmute',
+      'ban', 'unban', 'kick', 'note', 'modconfig', 'appeal',
+      'check', 'echo'].includes(commandName)) {
+   await handleModCommand(interaction);
+   // Set temporary status for moderation actions
+   if (['warn', 'mute', 'ban', 'kick'].includes(commandName)) {
+     setTemporaryStatus(client, 'moderation duties', ActivityType.Custom, 12000, '⚖️ Justice served');
+   }
+   return;
+ }
+
+ // Get the member from the interaction
+ const member = interaction.guild.members.cache.get(interaction.user.id);
+ if (!member) {
+   await interaction.reply({ content: 'Could not find you in this server!', flags: MessageFlags.Ephemeral });
+   return;
+ }
+
+ try {
+   switch (commandName) {
+     case 'color':
+       const subcommand = interaction.options.getSubcommand();
+       
+       switch (subcommand) {
+         case 'select':
+           await handleColorSelectCommand(interaction);
+           break;
+         case 'remove':
+           await handleColorRemoveCommand(interaction, member);
+           break;
+       }
+       break;
+     
+     case 'nsfw':
+       await handleNSFWCommand(interaction);
+       break;
+     
+     case 'verify':
+       await handleVerifyCommand(interaction);
+       // Set temporary status for verification
+       setTemporaryStatus(client, 'age verification', ActivityType.Custom, 10000, '✅ Checking ID');
+       break;
+     
+     case 'modverify':
+       await handleModVerifyCommand(interaction);
+       break;
+       
+     case 'logger':
+       await handleLoggerCommand(interaction);
+       break;
+       
+     default:
+       await interaction.reply({ 
+         content: 'Unknown command. Please use a valid command.', 
+         flags: MessageFlags.Ephemeral
+       });
+   }
+ } catch (error) {
+   console.error(`❌ Error handling command ${commandName}:`, error);
+   
+   // Only reply if the interaction hasn't been responded to yet
+   if (!interaction.replied && !interaction.deferred) {
+     await interaction.reply({ 
+       content: 'There was an error executing this command. Please try again later.', 
+       ephemeral: true 
+     }).catch((err) => console.error('Error sending error message:', err));
+   }
+ }
 }
 
 /**
- * Handle button interactions
- */
+* Handle button interactions
+*/
 async function handleButtonInteraction(interaction: ButtonInteraction) {
-  const customId = interaction.customId;
-  
-  try {
-    // Handle warning system buttons
-    if (customId.startsWith('open_appeal_modal_') ||
-        customId.startsWith('approve_appeal_') ||
-        customId.startsWith('deny_appeal_')) {
-      await handleModButtonInteraction(interaction);
-      return;
-    }
-    
-    // Handle color selection
-    if (customId === 'color_category_select' || customId === 'color_select') {
-      // These are handled by the collectors in handleColorSelectCommand
-      return;
-    }
-    
-    // Handle verification buttons
-    if (customId === 'start_verification') {
-      await handleVerificationButton(interaction);
-    } 
-    // Handle verification continue button in DM
-    else if (customId.startsWith('verification_continue_')) {
-      await handleVerificationContinue(interaction);
-    }
-    // Handle verification cancel button in DM
-    else if (customId.startsWith('verification_cancel_')) {
-      await handleVerificationCancel(interaction);
-    }
-    // Handle verification upload button in DM
-    else if (customId.startsWith('verification_upload_')) {
-      await handleVerificationUpload(interaction);
-    }
-    // Handle verification approval/denial
-    else if (customId.startsWith('approve_verification_') || customId.startsWith('deny_verification_')) {
-      await handleVerificationDecision(interaction);
-      // Set temporary status for verification decision
-      if (customId.startsWith('approve_')) {
-        setTemporaryStatus(client, 'age verification', ActivityType.Custom, 10000, '✅ Someone got verified');
-      }
-      return;
-    }
-    else {
-      // Unknown button
-      await interaction.reply({ 
-        content: 'This button interaction is not recognized.', 
-        ephemeral: true 
-      });
-    }
-  } catch (error) {
-    console.error(`❌ Error handling button interaction ${customId}:`, error);
-    
-    // Only reply if the interaction hasn't been responded to yet
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ 
-        content: 'There was an error processing this button. Please try again later.', 
-        ephemeral: true 
-      }).catch((err) => console.error('Error sending error message:', err));
-    }
-  }
+ const customId = interaction.customId;
+ 
+ try {
+   // Handle music control buttons FIRST
+   if (customId.startsWith('music_')) {
+     const action = customId.split('_')[1];
+     
+     switch (action) {
+       case 'pause':
+         const queue = musicManager.getQueue(interaction.guild!.id);
+         if (queue) {
+           const queueInfo = musicManager.getQueueInfo(interaction.guild!.id);
+           if (queueInfo?.isPlaying) {
+             musicManager.pause(interaction.guild!.id);
+             await interaction.reply({ content: '⏸️ Paused!', ephemeral: true });
+           } else {
+             musicManager.resume(interaction.guild!.id);
+             await interaction.reply({ content: '▶️ Resumed!', ephemeral: true });
+           }
+         } else {
+           await interaction.reply({ content: '❌ No music is playing!', ephemeral: true });
+         }
+         break;
+         
+       case 'skip':
+         if (musicManager.skip(interaction.guild!.id)) {
+           await interaction.reply({ content: '⏭️ Skipped!', ephemeral: true });
+         } else {
+           await interaction.reply({ content: '❌ Nothing to skip!', ephemeral: true });
+         }
+         break;
+         
+       case 'stop':
+         if (musicManager.stop(interaction.guild!.id)) {
+           await interaction.reply({ content: '⏹️ Stopped and cleared queue!', ephemeral: true });
+         } else {
+           await interaction.reply({ content: '❌ No music is playing!', ephemeral: true });
+         }
+         break;
+     }
+     return;
+   }
+
+   // Handle warning system buttons
+   if (customId.startsWith('open_appeal_modal_') ||
+       customId.startsWith('approve_appeal_') ||
+       customId.startsWith('deny_appeal_')) {
+     await handleModButtonInteraction(interaction);
+     return;
+   }
+   
+   // Handle color selection
+   if (customId === 'color_category_select' || customId === 'color_select') {
+     // These are handled by the collectors in handleColorSelectCommand
+     return;
+   }
+   
+   // Handle verification buttons
+   if (customId === 'start_verification') {
+     await handleVerificationButton(interaction);
+   } 
+   // Handle verification continue button in DM
+   else if (customId.startsWith('verification_continue_')) {
+     await handleVerificationContinue(interaction);
+   }
+   // Handle verification cancel button in DM
+   else if (customId.startsWith('verification_cancel_')) {
+     await handleVerificationCancel(interaction);
+   }
+   // Handle verification upload button in DM
+   else if (customId.startsWith('verification_upload_')) {
+     await handleVerificationUpload(interaction);
+   }
+   // Handle verification approval/denial
+   else if (customId.startsWith('approve_verification_') || customId.startsWith('deny_verification_')) {
+     await handleVerificationDecision(interaction);
+     // Set temporary status for verification decision
+     if (customId.startsWith('approve_')) {
+       setTemporaryStatus(client, 'age verification', ActivityType.Custom, 10000, '✅ Someone got verified');
+     }
+     return;
+   }
+   else {
+     // Unknown button
+     await interaction.reply({ 
+       content: 'This button interaction is not recognized.', 
+       ephemeral: true 
+     });
+   }
+ } catch (error) {
+   console.error(`❌ Error handling button interaction ${customId}:`, error);
+   
+   // Only reply if the interaction hasn't been responded to yet
+   if (!interaction.replied && !interaction.deferred) {
+     await interaction.reply({ 
+       content: 'There was an error processing this button. Please try again later.', 
+       ephemeral: true 
+     }).catch((err) => console.error('Error sending error message:', err));
+   }
+ }
 }
 
 /**
- * Handle modal interactions
- */
+* Handle modal interactions
+*/
 async function handleModalInteraction(interaction: ModalSubmitInteraction) {
-  const customId = interaction.customId;
-  
-  try {
-    // Handle warning system modals
-    if (customId.startsWith('appeal_modal_') ||
-        customId.startsWith('appeal_decision_')) {
-      await handleModModalSubmit(interaction);
-      return;
-    }
-    
-    // Handle verification modals
-    if (customId.startsWith('verification_modal_')) {
-      await handleVerificationModal(interaction);
-    }
-    else {
-      // Unknown modal
-      await interaction.reply({ 
-        content: 'This modal submission is not recognized.', 
-        flags: MessageFlags.Ephemeral 
-      });
-    }
-  } catch (error) {
-    console.error(`❌ Error handling modal interaction ${customId}:`, error);
-    
-    // Only reply if the interaction hasn't been responded to yet
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ 
-        content: 'There was an error processing this submission. Please try again later.', 
-        flags: MessageFlags.Ephemeral 
-      }).catch((err) => console.error('Error sending error message:', err));
-    }
-  }
+ const customId = interaction.customId;
+ 
+ try {
+   // Handle warning system modals
+   if (customId.startsWith('appeal_modal_') ||
+       customId.startsWith('appeal_decision_')) {
+     await handleModModalSubmit(interaction);
+     return;
+   }
+   
+   // Handle verification modals
+   if (customId.startsWith('verification_modal_')) {
+     await handleVerificationModal(interaction);
+   }
+   else {
+     // Unknown modal
+     await interaction.reply({ 
+       content: 'This modal submission is not recognized.', 
+       flags: MessageFlags.Ephemeral 
+     });
+   }
+ } catch (error) {
+   console.error(`❌ Error handling modal interaction ${customId}:`, error);
+   
+   // Only reply if the interaction hasn't been responded to yet
+   if (!interaction.replied && !interaction.deferred) {
+     await interaction.reply({ 
+       content: 'There was an error processing this submission. Please try again later.', 
+       flags: MessageFlags.Ephemeral 
+     }).catch((err) => console.error('Error sending error message:', err));
+   }
+ }
 }
 
 //=============================================================================
@@ -1404,66 +1461,72 @@ setupDescriptionShutdownHandlers(client);
 
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('\n🛑 Received SIGINT, shutting down gracefully...');
-  try {
-    // Stop rotating status
-    stopRotatingStatus();
-    
-    // Set updating status
-    setStaticStatus(client, 'shutting down...', ActivityType.Custom, '🛑 Updating');
-    
-    // Set description to updating
-    await setBotDescriptionUpdating(client);
-    
-    // Send shutdown message
-    await discordLogger.sendShutdownMessage();
-    
-    // Give it a moment to process
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-  } catch (error) {
-    originalConsoleError('Error during shutdown:', error);
-  } finally {
-    client.destroy();
-    process.exit(0);
-  }
+ console.log('\n🛑 Received SIGINT, shutting down gracefully...');
+ try {
+   // Stop rotating status
+   stopRotatingStatus();
+   
+   // Clean up music manager
+   musicManager.cleanup();
+   
+   // Set updating status
+   setStaticStatus(client, 'shutting down...', ActivityType.Custom, '🛑 Updating');
+   
+   // Set description to updating
+   await setBotDescriptionUpdating(client);
+   
+   // Send shutdown message
+   await discordLogger.sendShutdownMessage();
+   
+   // Give it a moment to process
+   await new Promise(resolve => setTimeout(resolve, 2000));
+   
+ } catch (error) {
+   originalConsoleError('Error during shutdown:', error);
+ } finally {
+   client.destroy();
+   process.exit(0);
+ }
 });
 
 process.on('SIGTERM', async () => {
-  console.log('\n🛑 Received SIGTERM, shutting down gracefully...');
-  try {
-    // Stop rotating status
-    stopRotatingStatus();
-    
-    // Set updating status
-    setStaticStatus(client, 'shutting down...', ActivityType.Custom, '🛑 Updating');
-    
-    // Set description to updating
-    await setBotDescriptionUpdating(client);
-    
-    // Send shutdown message
-    await discordLogger.sendShutdownMessage();
-    
-    // Give it a moment to process
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-  } catch (error) {
-    originalConsoleError('Error during shutdown:', error);
-  } finally {
-    client.destroy();
-    process.exit(0);
-  }
+ console.log('\n🛑 Received SIGTERM, shutting down gracefully...');
+ try {
+   // Stop rotating status
+   stopRotatingStatus();
+   
+   // Clean up music manager
+   musicManager.cleanup();
+   
+   // Set updating status
+   setStaticStatus(client, 'shutting down...', ActivityType.Custom, '🛑 Updating');
+   
+   // Set description to updating
+   await setBotDescriptionUpdating(client);
+   
+   // Send shutdown message
+   await discordLogger.sendShutdownMessage();
+   
+   // Give it a moment to process
+   await new Promise(resolve => setTimeout(resolve, 2000));
+   
+ } catch (error) {
+   originalConsoleError('Error during shutdown:', error);
+ } finally {
+   client.destroy();
+   process.exit(0);
+ }
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  originalConsoleError('❌ Uncaught Exception:', error);
-  safeDiscordLog('error', `Uncaught Exception: ${error.message}`, 'Process');
+ originalConsoleError('❌ Uncaught Exception:', error);
+ safeDiscordLog('error', `Uncaught Exception: ${error.message}`, 'Process');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  originalConsoleError('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-  safeDiscordLog('error', `Unhandled Rejection: ${reason}`, 'Process');
+ originalConsoleError('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+ safeDiscordLog('error', `Unhandled Rejection: ${reason}`, 'Process');
 });
 
 //=============================================================================
